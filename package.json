@@ -1,0 +1,14 @@
+{
+  "name": "open-school-transport-network",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "web/operations"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @ostn/operations-web",
+    "dev:operations": "npm run dev --workspace @ostn/operations-web -- --port 3000",
+    "build": "npm run build --workspace @ostn/operations-web",
+    "build:operations": "npm run build --workspace @ostn/operations-web"
+  }
+}

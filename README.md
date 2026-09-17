@@ -9,6 +9,61 @@
 
 ---
 
+# Current Implementation
+
+The repository now follows the modular structure from the implementation starter kit:
+
+```text
+backend/
+  config/
+  apps/
+    identity/
+    organizations/
+    guardians/
+    students/
+    drivers/
+    vehicles/
+    routes/
+    transport/
+    credentials/
+    safety/
+    incidents/
+    notifications/
+    audit/
+
+web/
+  guardian/
+  school_admin/
+  operations/
+
+mobile/
+  driver_app/
+
+packages/
+  api-client/
+  domain-types/
+  protocol/
+```
+
+The runnable phase-1 MVP is currently in `web/operations`. It includes the local prototype flows for parent, driver, school, and admin verification, including document upload, admin preview, and approval.
+
+Run it from the repository root:
+
+```bash
+npm install
+npm run dev:operations
+```
+
+Then open:
+
+```text
+http://localhost:3000
+```
+
+The MVP uses browser storage for now. The next milestone is to move persistence and authorization into the Django REST backend under `backend/`.
+
+---
+
 # 1. Executive Summary
 
 Open SchoolSafe Network is an open-source platform for coordinating safe transportation of children between homes, designated pickup points and schools.
