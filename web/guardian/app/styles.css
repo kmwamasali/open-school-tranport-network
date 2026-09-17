@@ -1,0 +1,11 @@
+@import "../../operations/app/styles.css";
+
+.nav-link {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--accent);
+  font-weight: 700;
+  min-height: 42px;
+  padding: 11px 14px;
+  text-decoration: none;
+}

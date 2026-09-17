@@ -3,12 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
+    "web/guardian",
+    "web/school_admin",
     "web/operations"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @ostn/operations-web",
+    "dev:guardian": "npm run dev --workspace @ostn/guardian-web -- --port 3001",
+    "dev:school": "npm run dev --workspace @ostn/school-admin-web -- --port 3002",
     "dev:operations": "npm run dev --workspace @ostn/operations-web -- --port 3000",
-    "build": "npm run build --workspace @ostn/operations-web",
+    "build": "npm run build:guardian && npm run build:school && npm run build:operations",
+    "build:guardian": "npm run build --workspace @ostn/guardian-web",
+    "build:school": "npm run build --workspace @ostn/school-admin-web",
     "build:operations": "npm run build --workspace @ostn/operations-web"
   }
 }
