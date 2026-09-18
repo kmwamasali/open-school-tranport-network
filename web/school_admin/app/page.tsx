@@ -36,6 +36,37 @@ type ParentRecord = {
   createdAt: string;
 };
 
+type AuthenticationRecord = {
+  id: string;
+  userId: string;
+  phone: string;
+  otpVerified: boolean;
+  createdAt: string;
+};
+
+type UserRecord = {
+  id: string;
+  primaryRole: "guardian";
+  isActive: boolean;
+  createdAt: string;
+};
+
+type IdentityRecord = {
+  id: string;
+  userId: string;
+  legalName: string;
+  verificationStatus: Status;
+  documents: DocumentRecord[];
+  createdAt: string;
+};
+
+type GuardianProfileRecord = {
+  id: string;
+  userId: string;
+  parentId: string;
+  createdAt: string;
+};
+
 type SchoolRecord = {
   id: string;
   name: string;
@@ -58,6 +89,10 @@ type SchoolIdRequestRecord = {
 
 type AppState = {
   parents: ParentRecord[];
+  authentications: AuthenticationRecord[];
+  users: UserRecord[];
+  identities: IdentityRecord[];
+  guardianProfiles: GuardianProfileRecord[];
   drivers: unknown[];
   schools: SchoolRecord[];
   vehicles: unknown[];
@@ -76,6 +111,10 @@ const VERIFICATION_ORG_NAME = "OSTN Trust Desk";
 
 const initialState: AppState = {
   parents: [],
+  authentications: [],
+  users: [],
+  identities: [],
+  guardianProfiles: [],
   drivers: [],
   schools: [
     {
@@ -114,6 +153,10 @@ function loadState(): AppState {
 function normalizeState(state: Partial<AppState>): AppState {
   return {
     parents: state.parents ?? initialState.parents,
+    authentications: state.authentications ?? initialState.authentications,
+    users: state.users ?? initialState.users,
+    identities: state.identities ?? initialState.identities,
+    guardianProfiles: state.guardianProfiles ?? initialState.guardianProfiles,
     drivers: state.drivers ?? initialState.drivers,
     schools: (state.schools ?? initialState.schools).map((school) =>
       school.status === "approved" && !school.verifiedByOrganizationId
@@ -239,7 +282,28 @@ export default function SchoolPortal() {
           documents: [],
           createdAt: new Date().toISOString()
         };
-        return { ...current, parents: [...current.parents, placeholder] };
+        const userId = uid("user");
+        const createdAt = placeholder.createdAt;
+        return {
+          ...current,
+          parents: [...current.parents, placeholder],
+          authentications: [
+            ...current.authentications,
+            { id: uid("auth"), userId, phone: guardianPhone, otpVerified: false, createdAt }
+          ],
+          users: [
+            ...current.users,
+            { id: userId, primaryRole: "guardian", isActive: true, createdAt }
+          ],
+          identities: [
+            ...current.identities,
+            { id: uid("identity"), userId, legalName: placeholder.name, verificationStatus: "pending", documents: [], createdAt }
+          ],
+          guardianProfiles: [
+            ...current.guardianProfiles,
+            { id: uid("guardian-profile"), userId, parentId: placeholder.id, createdAt }
+          ]
+        };
       },
       `School created child account ${child.pseudonymousId}`
     );
@@ -289,7 +353,8 @@ export default function SchoolPortal() {
   return (
     <main>
       <header className="topbar">
-        <div>
+        <div className="portal-header">
+          <img className="portal-logo" src="/MaMa-Johns-School-Tranport-Logo.png" alt="MaMa John's School Transport Network" />
           <p className="eyebrow">School Portal</p>
           <h1>Registration and student verification</h1>
         </div>

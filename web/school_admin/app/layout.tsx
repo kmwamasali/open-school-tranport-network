@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "School Portal",
+  title: "MaMa John's | School",
   description: "School registration and student verification"
 };
 

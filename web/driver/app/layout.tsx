@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Driver Portal",
+  title: "MaMa John's | Driver",
   description: "Driver and fleet operator onboarding"
 };
 

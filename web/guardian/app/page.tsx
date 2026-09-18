@@ -36,6 +36,38 @@ type ParentRecord = {
   createdAt: string;
 };
 
+type AuthenticationRecord = {
+  id: string;
+  userId: string;
+  phone: string;
+  otpVerified: boolean;
+  createdAt: string;
+};
+
+type UserRecord = {
+  id: string;
+  primaryRole: "guardian";
+  isActive: boolean;
+  createdAt: string;
+};
+
+type IdentityRecord = {
+  id: string;
+  userId: string;
+  legalName: string;
+  verificationStatus: Status;
+  verifiedByOrganizationId?: string;
+  documents: DocumentRecord[];
+  createdAt: string;
+};
+
+type GuardianProfileRecord = {
+  id: string;
+  userId: string;
+  parentId: string;
+  createdAt: string;
+};
+
 type SchoolRecord = {
   id: string;
   name: string;
@@ -58,6 +90,10 @@ type SchoolIdRequestRecord = {
 
 type AppState = {
   parents: ParentRecord[];
+  authentications: AuthenticationRecord[];
+  users: UserRecord[];
+  identities: IdentityRecord[];
+  guardianProfiles: GuardianProfileRecord[];
   drivers: unknown[];
   schools: SchoolRecord[];
   vehicles: unknown[];
@@ -76,6 +112,10 @@ const VERIFICATION_ORG_NAME = "OSTN Trust Desk";
 
 const initialState: AppState = {
   parents: [],
+  authentications: [],
+  users: [],
+  identities: [],
+  guardianProfiles: [],
   drivers: [],
   schools: [
     {
@@ -109,8 +149,29 @@ function loadState(): AppState {
 }
 
 function normalizeState(state: Partial<AppState>): AppState {
+  const parents = state.parents ?? initialState.parents;
+  const existingUsers = state.users ?? [];
+  const existingIdentities = state.identities ?? [];
+  const existingProfiles = state.guardianProfiles ?? [];
+  const existingAuthentications = state.authentications ?? [];
+  const migrated = parents.reduce(
+    (records, parent) => {
+      if (records.authentications.some((item) => item.phone === parent.phone)) return records;
+      const userId = uid("user");
+      records.users.push({ id: userId, primaryRole: "guardian", isActive: true, createdAt: parent.createdAt });
+      records.authentications.push({ id: uid("auth"), userId, phone: parent.phone, otpVerified: parent.otpVerified, createdAt: parent.createdAt });
+      records.identities.push({ id: uid("identity"), userId, legalName: parent.name, verificationStatus: parent.identityStatus, verifiedByOrganizationId: parent.verifiedByOrganizationId, documents: parent.documents, createdAt: parent.createdAt });
+      records.guardianProfiles.push({ id: uid("guardian-profile"), userId, parentId: parent.id, createdAt: parent.createdAt });
+      return records;
+    },
+    { authentications: [...existingAuthentications], users: [...existingUsers], identities: [...existingIdentities], guardianProfiles: [...existingProfiles] }
+  );
   return {
-    parents: state.parents ?? initialState.parents,
+    parents,
+    authentications: migrated.authentications,
+    users: migrated.users,
+    identities: migrated.identities,
+    guardianProfiles: migrated.guardianProfiles,
     drivers: state.drivers ?? initialState.drivers,
     schools: (state.schools ?? initialState.schools).map((school) =>
       school.status === "approved" && !school.verifiedByOrganizationId
@@ -184,6 +245,8 @@ export default function GuardianPortal() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const upload = await readFile(form.get("document") as File);
+    const userId = uid("user");
+    const createdAt = new Date().toISOString();
     const record: ParentRecord = {
       id: uid("parent"),
       name: String(form.get("name")),
@@ -193,14 +256,51 @@ export default function GuardianPortal() {
       schoolId: String(form.get("schoolId")),
       children: [],
       documents: makeDocument("Parent identity", upload),
-      createdAt: new Date().toISOString()
+      createdAt
+    };
+    const authentication: AuthenticationRecord = {
+      id: uid("auth"),
+      userId,
+      phone: record.phone,
+      otpVerified: false,
+      createdAt
+    };
+    const user: UserRecord = {
+      id: userId,
+      primaryRole: "guardian",
+      isActive: true,
+      createdAt
+    };
+    const identity: IdentityRecord = {
+      id: uid("identity"),
+      userId,
+      legalName: record.name,
+      verificationStatus: record.identityStatus,
+      documents: record.documents,
+      createdAt
+    };
+    const guardianProfile: GuardianProfileRecord = {
+      id: uid("guardian-profile"),
+      userId,
+      parentId: record.id,
+      createdAt
     };
     let selectedId = record.id;
     commit(
       (current) => {
         const existing = current.parents.find((item) => item.phone === record.phone);
-        if (!existing) return { ...current, parents: [...current.parents, record] };
+        if (!existing) {
+          return {
+            ...current,
+            parents: [...current.parents, record],
+            authentications: [...current.authentications, authentication],
+            users: [...current.users, user],
+            identities: [...current.identities, identity],
+            guardianProfiles: [...current.guardianProfiles, guardianProfile]
+          };
+        }
         selectedId = existing.id;
+        const existingAuth = current.authentications.find((item) => item.phone === record.phone);
         return {
           ...current,
           parents: current.parents.map((item) =>
@@ -214,7 +314,25 @@ export default function GuardianPortal() {
                   documents: [...item.documents, ...record.documents]
                 }
               : item
-          )
+          ),
+          authentications: existingAuth
+            ? current.authentications
+            : [...current.authentications, { ...authentication, userId: uid("user") }],
+          users: current.users,
+          identities: existingAuth
+            ? current.identities.map((item) =>
+                item.userId === existingAuth.userId
+                  ? {
+                      ...item,
+                      legalName: record.name,
+                      verificationStatus: record.identityStatus,
+                      verifiedByOrganizationId: undefined,
+                      documents: [...item.documents, ...record.documents]
+                    }
+                  : item
+              )
+            : current.identities,
+          guardianProfiles: current.guardianProfiles
         };
       },
       `Guardian registration submitted for ${record.name}`
@@ -233,6 +351,20 @@ export default function GuardianPortal() {
       }),
       "Phone verification completed"
     );
+  }
+
+  function signInParent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const phone = String(new FormData(event.currentTarget).get("phone"));
+    const authentication = state.authentications.find((item) => item.phone === phone);
+    const matchedParent = state.parents.find((item) => item.phone === phone);
+    if (!authentication || !matchedParent) {
+      setMessage("No guardian account was found for that phone number.");
+      return;
+    }
+    setSelectedParentId(matchedParent.id);
+    setMessage("Signed in. Verify your phone below to continue.");
+    event.currentTarget.reset();
   }
 
   function claimChildren(event: FormEvent<HTMLFormElement>) {
@@ -292,7 +424,8 @@ export default function GuardianPortal() {
   return (
     <main>
       <header className="topbar">
-        <div>
+        <div className="portal-header">
+          <img className="portal-logo" src="/MaMa-Johns-School-Tranport-Logo.png" alt="MaMa John's School Transport Network" />
           <p className="eyebrow">Guardian Portal</p>
           <h1>Guardian onboarding</h1>
         </div>
@@ -346,6 +479,13 @@ export default function GuardianPortal() {
                 ))}
               </select>
             </label>
+            <form onSubmit={signInParent} className="inline-form">
+              <label>
+                Sign in with phone
+                <input name="phone" required placeholder="+256..." />
+              </label>
+              <button type="submit" className="ghost">Sign in</button>
+            </form>
             {parent ? (
               <div className="status-card">
                 <p>Phone <StatusPill status={parent.otpVerified ? "approved" : "pending"} label={parent.otpVerified ? "verified" : "needs OTP"} /></p>

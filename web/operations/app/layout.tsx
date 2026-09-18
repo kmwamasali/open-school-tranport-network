@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Open School Transport Network MVP",
+  title: "MaMa John's | Operations",
   description: "Phase 1 onboarding and verification MVP"
 };
 

@@ -252,7 +252,8 @@ export default function DriverPortal() {
   return (
     <main>
       <header className="topbar">
-        <div>
+        <div className="portal-header">
+          <img className="portal-logo" src="/MaMa-Johns-School-Tranport-Logo.png" alt="MaMa John's School Transport Network" />
           <p className="eyebrow">Driver Portal</p>
           <h1>Driver and fleet onboarding</h1>
         </div>

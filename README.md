@@ -1,4 +1,9 @@
-# MaMa John Open School Trasnport Network
+# MaMa John's Open School Transport Network
+
+<p align="center">
+  <img src="MaMa-Johns-School-Tranport-Logo.png" alt="MaMa John's School Transport Network" width="320">
+</p>
+
 ## Privacy-Preserving Infrastructure for Safe School Transportation
 
 **Project status:** Concept → MVP Design  
@@ -6,6 +11,20 @@
 **License direction:** Open-source core  
 **Primary users:** Parents/guardians, schools, drivers/transport operators, administrators  
 **Core principle:** Minimize personal data while maximizing accountability and safety.
+
+The platform follows a deliberate identity boundary:
+
+```text
+Authentication
+  ↓
+User
+  ↓
+IdentityRecord
+  ↓
+Role-specific profile
+```
+
+Authentication credentials, sensitive identity evidence, and role-specific records are separate concerns. Guardian relationships and child access are authorized through the role profile and verified relationship, not through a single unrestricted user profile.
 
 ---
 

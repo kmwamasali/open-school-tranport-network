@@ -37,6 +37,23 @@ type ParentRecord = {
   createdAt: string;
 };
 
+type IdentityRecord = {
+  id: string;
+  userId: string;
+  legalName: string;
+  verificationStatus: Status;
+  verifiedByOrganizationId?: string;
+  documents: DocumentRecord[];
+  createdAt: string;
+};
+
+type GuardianProfileRecord = {
+  id: string;
+  userId: string;
+  parentId: string;
+  createdAt: string;
+};
+
 type DriverRecord = {
   id: string;
   name: string;
@@ -76,6 +93,10 @@ type SchoolIdRequestRecord = {
 
 type AppState = {
   parents: ParentRecord[];
+  authentications: unknown[];
+  users: unknown[];
+  identities: IdentityRecord[];
+  guardianProfiles: GuardianProfileRecord[];
   drivers: DriverRecord[];
   schools: SchoolRecord[];
   vehicles: VehicleRecord[];
@@ -96,6 +117,10 @@ const VERIFICATION_ORG_NAME = "OSTN Trust Desk";
 
 const initialState: AppState = {
   parents: [],
+  authentications: [],
+  users: [],
+  identities: [],
+  guardianProfiles: [],
   drivers: [],
   schools: [
     {
@@ -129,6 +154,10 @@ function loadState(): AppState {
 function normalizeState(state: Partial<AppState>): AppState {
   return {
     parents: state.parents ?? initialState.parents,
+    authentications: state.authentications ?? initialState.authentications,
+    users: state.users ?? initialState.users,
+    identities: state.identities ?? initialState.identities,
+    guardianProfiles: state.guardianProfiles ?? initialState.guardianProfiles,
     drivers: state.drivers ?? initialState.drivers,
     schools: (state.schools ?? initialState.schools).map((school) =>
       school.status === "approved" && !school.verifiedByOrganizationId
@@ -233,7 +262,13 @@ export default function OperationsConsole() {
                 documents: markDocument(parent.documents)
               }
             : parent
-        )
+          ),
+        identities: draft.identities.map((identity) => {
+          const profile = draft.guardianProfiles.find((item) => item.userId === identity.userId);
+          return profile?.parentId === ownerId
+            ? { ...identity, verificationStatus: "approved", verifiedByOrganizationId: VERIFICATION_ORG_ID, documents: markDocument(identity.documents) }
+            : identity;
+        })
       };
     }
 
@@ -277,7 +312,8 @@ export default function OperationsConsole() {
   return (
     <main>
       <header className="topbar">
-        <div>
+        <div className="portal-header">
+          <img className="portal-logo" src="/MaMa-Johns-School-Tranport-Logo.png" alt="MaMa John's School Transport Network" />
           <p className="eyebrow">Operations</p>
           <h1>Admin verification console</h1>
         </div>
