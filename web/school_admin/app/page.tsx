@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
+type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
 
 type DocumentRecord = {
   id: string;
@@ -67,6 +68,36 @@ type GuardianProfileRecord = {
   createdAt: string;
 };
 
+type SchoolAuthenticationRecord = {
+  id: string;
+  userId: string;
+  phone: string;
+  otpVerified: boolean;
+  createdAt: string;
+};
+
+type SchoolUserRecord = {
+  id: string;
+  primaryRole: "school_staff";
+  isActive: boolean;
+  createdAt: string;
+};
+
+type SchoolIdentityRecord = {
+  id: string;
+  userId: string;
+  legalName: string;
+  verificationStatus: Status;
+  createdAt: string;
+};
+
+type SchoolStaffProfileRecord = {
+  id: string;
+  userId: string;
+  schoolId: string;
+  createdAt: string;
+};
+
 type SchoolRecord = {
   id: string;
   name: string;
@@ -93,6 +124,10 @@ type AppState = {
   users: UserRecord[];
   identities: IdentityRecord[];
   guardianProfiles: GuardianProfileRecord[];
+  schoolAuthentications: SchoolAuthenticationRecord[];
+  schoolUsers: SchoolUserRecord[];
+  schoolIdentities: SchoolIdentityRecord[];
+  schoolStaffProfiles: SchoolStaffProfileRecord[];
   drivers: unknown[];
   schools: SchoolRecord[];
   vehicles: unknown[];
@@ -115,6 +150,10 @@ const initialState: AppState = {
   users: [],
   identities: [],
   guardianProfiles: [],
+  schoolAuthentications: [],
+  schoolUsers: [],
+  schoolIdentities: [],
+  schoolStaffProfiles: [],
   drivers: [],
   schools: [
     {
@@ -150,6 +189,17 @@ function loadState(): AppState {
   }
 }
 
+function persistState(state: AppState) {
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(state, (key, value) => key === "dataUrl" ? "" : value)
+    );
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
 function normalizeState(state: Partial<AppState>): AppState {
   return {
     parents: state.parents ?? initialState.parents,
@@ -157,6 +207,10 @@ function normalizeState(state: Partial<AppState>): AppState {
     users: state.users ?? initialState.users,
     identities: state.identities ?? initialState.identities,
     guardianProfiles: state.guardianProfiles ?? initialState.guardianProfiles,
+    schoolAuthentications: state.schoolAuthentications ?? initialState.schoolAuthentications,
+    schoolUsers: state.schoolUsers ?? initialState.schoolUsers,
+    schoolIdentities: state.schoolIdentities ?? initialState.schoolIdentities,
+    schoolStaffProfiles: state.schoolStaffProfiles ?? initialState.schoolStaffProfiles,
     drivers: state.drivers ?? initialState.drivers,
     schools: (state.schools ?? initialState.schools).map((school) =>
       school.status === "approved" && !school.verifiedByOrganizationId
@@ -198,13 +252,23 @@ export default function SchoolPortal() {
   const [state, setState] = useState<AppState>(initialState);
   const [selectedSchoolId, setSelectedSchoolId] = useState("school-demo");
   const [message, setMessage] = useState("");
+  const [authStage, setAuthStage] = useState<AuthStage>("welcome");
+  const [sessionUserId, setSessionUserId] = useState("");
 
   useEffect(() => {
-    setState(loadState());
+    const loadedState = loadState();
+    setState(loadedState);
+    const savedUserId = window.sessionStorage.getItem("ostn.school.session");
+    const savedProfile = loadedState.schoolStaffProfiles.find((item) => item.userId === savedUserId);
+    if (savedUserId && savedProfile) {
+      setSessionUserId(savedUserId);
+      setSelectedSchoolId(savedProfile.schoolId);
+      setAuthStage("dashboard");
+    }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistState(state);
   }, [state]);
 
   const school = state.schools.find((item) => item.id === selectedSchoolId);
@@ -218,6 +282,7 @@ export default function SchoolPortal() {
       ),
     [selectedSchoolId, state.parents]
   );
+  const sessionAuth = state.schoolAuthentications.find((item) => item.userId === sessionUserId);
 
   function commit(updater: (current: AppState) => AppState, audit: string) {
     setState((current) => {
@@ -229,7 +294,8 @@ export default function SchoolPortal() {
 
   async function registerSchool(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const upload = await readFile(form.get("document") as File);
     const record: SchoolRecord = {
       id: uid("school"),
@@ -240,9 +306,46 @@ export default function SchoolPortal() {
       documents: makeDocument(upload),
       createdAt: new Date().toISOString()
     };
-    commit((current) => ({ ...current, schools: [...current.schools, record] }), `School registration submitted for ${record.name}`);
+    const userId = uid("school-user");
+    const schoolAuth: SchoolAuthenticationRecord = { id: uid("school-auth"), userId, phone: record.phone, otpVerified: false, createdAt: record.createdAt };
+    const schoolUser: SchoolUserRecord = { id: userId, primaryRole: "school_staff", isActive: true, createdAt: record.createdAt };
+    const schoolIdentity: SchoolIdentityRecord = { id: uid("school-identity"), userId, legalName: record.contactName, verificationStatus: "pending", createdAt: record.createdAt };
+    const schoolProfile: SchoolStaffProfileRecord = { id: uid("school-staff"), userId, schoolId: record.id, createdAt: record.createdAt };
+    commit((current) => ({ ...current, schools: [...current.schools, record], schoolAuthentications: [...current.schoolAuthentications, schoolAuth], schoolUsers: [...current.schoolUsers, schoolUser], schoolIdentities: [...current.schoolIdentities, schoolIdentity], schoolStaffProfiles: [...current.schoolStaffProfiles, schoolProfile] }), `School registration submitted for ${record.name}`);
     setSelectedSchoolId(record.id);
-    event.currentTarget.reset();
+    setSessionUserId(userId);
+    window.sessionStorage.setItem("ostn.school.session", userId);
+    setAuthStage("verify");
+    formElement.reset();
+  }
+
+  function signInSchool(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const phone = String(new FormData(event.currentTarget).get("phone"));
+    const authentication = state.schoolAuthentications.find((item) => item.phone === phone);
+    const profile = authentication && state.schoolStaffProfiles.find((item) => item.userId === authentication.userId);
+    if (!authentication || !profile) {
+      setMessage("No school staff account was found for that phone number.");
+      return;
+    }
+    setSessionUserId(authentication.userId);
+    setSelectedSchoolId(profile.schoolId);
+    window.sessionStorage.setItem("ostn.school.session", authentication.userId);
+    setAuthStage(authentication.otpVerified ? "dashboard" : "verify");
+    setMessage("School account found. Verify the phone to continue.");
+  }
+
+  function verifySchoolPhone() {
+    if (!sessionUserId) return;
+    commit((current) => ({ ...current, schoolAuthentications: current.schoolAuthentications.map((item) => item.userId === sessionUserId ? { ...item, otpVerified: true } : item) }), "School staff phone verified");
+    setAuthStage("dashboard");
+  }
+
+  function signOutSchool() {
+    window.sessionStorage.removeItem("ostn.school.session");
+    setSessionUserId("");
+    setAuthStage("welcome");
+    setMessage("School account signed out.");
   }
 
   function createChild(event: FormEvent<HTMLFormElement>) {
@@ -362,6 +465,21 @@ export default function SchoolPortal() {
 
       {message ? <p className="toast">{message}</p> : null}
 
+      <SchoolAuthJourney
+        stage={authStage}
+        school={school}
+        sessionAuth={sessionAuth}
+        onStartRegister={() => setAuthStage("register")}
+        onStartSignIn={() => setAuthStage("signin")}
+        onRegister={registerSchool}
+        onSignIn={signInSchool}
+        onVerify={verifySchoolPhone}
+        onDashboard={() => setAuthStage("dashboard")}
+        onSignOut={signOutSchool}
+      />
+
+      {authStage === "dashboard" ? <>
+
       <section className="panel">
         <div className="panel-heading">
           <h2>Register school</h2>
@@ -455,8 +573,48 @@ export default function SchoolPortal() {
           ))}
         </div>
       </section>
+      </> : null}
+
     </main>
   );
+}
+
+function SchoolAuthJourney({
+  stage,
+  school,
+  sessionAuth,
+  onStartRegister,
+  onStartSignIn,
+  onRegister,
+  onSignIn,
+  onVerify,
+  onDashboard,
+  onSignOut
+}: {
+  stage: AuthStage;
+  school?: SchoolRecord;
+  sessionAuth?: SchoolAuthenticationRecord;
+  onStartRegister: () => void;
+  onStartSignIn: () => void;
+  onRegister: (event: FormEvent<HTMLFormElement>) => void;
+  onSignIn: (event: FormEvent<HTMLFormElement>) => void;
+  onVerify: () => void;
+  onDashboard: () => void;
+  onSignOut: () => void;
+}) {
+  if (stage === "dashboard") {
+    return <section className="auth-dashboard panel"><div><p className="eyebrow">School staff workspace</p><h2>{school?.name ?? "School dashboard"}</h2><p>Manage school-scoped students and guardian relationships from this verified workspace.</p></div><div className="auth-summary"><span><strong>Authentication</strong>{sessionAuth?.otpVerified ? "Phone verified" : "Phone pending"}</span><span><strong>School profile</strong>{school?.status ?? "pending"}</span><span><strong>Scope</strong>School records only</span></div><button type="button" className="ghost" onClick={onSignOut}>Sign out</button></section>;
+  }
+  if (stage === "verify") {
+    return <section className="auth-step panel"><div><p className="eyebrow">Step 2 of 2 · Phone verification</p><h2>Confirm school staff access</h2><p>Verify the phone attached to this school staff account before using the dashboard.</p></div><div className="auth-step-actions"><button type="button" onClick={onVerify} disabled={sessionAuth?.otpVerified}>Verify phone OTP</button><button type="button" className="ghost" onClick={onDashboard}>Continue to dashboard</button></div></section>;
+  }
+  if (stage === "register") {
+    return <section className="auth-step panel"><div className="panel-heading"><p className="eyebrow">Step 1 of 2 · School registration</p><h2>Register your school workspace</h2><p>School authentication, staff identity, and the school profile remain separate records.</p></div><form onSubmit={onRegister} className="form-grid auth-form"><label>School name<input name="name" required placeholder="Kampala Community School" /></label><label>Contact person<input name="contactName" required placeholder="Registrar" /></label><label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label><label>Registration document<input name="document" type="file" accept="image/*,.pdf" required /></label><button type="submit">Create school workspace</button></form><button type="button" className="text-button" onClick={onStartSignIn}>Already registered? Sign in</button></section>;
+  }
+  if (stage === "signin") {
+    return <section className="auth-step panel"><div className="panel-heading"><p className="eyebrow">School account access</p><h2>Sign in to the school dashboard</h2><p>Use the staff phone number attached to the school authentication record.</p></div><form onSubmit={onSignIn} className="inline-form auth-form"><label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label><button type="submit">Continue</button></form><button type="button" className="text-button" onClick={onStartRegister}>Register a school workspace</button></section>;
+  }
+  return <section className="auth-welcome panel"><div><p className="eyebrow">School access</p><h2>Run a trusted school transport workspace.</h2><p>Register school staff access or sign in to verify guardian relationships and student records.</p></div><div className="auth-step-actions"><button type="button" onClick={onStartRegister}>Register school</button><button type="button" className="ghost" onClick={onStartSignIn}>Sign in</button></div></section>;
 }
 
 function StatusPill({ status, label }: { status: Status; label?: string }) {

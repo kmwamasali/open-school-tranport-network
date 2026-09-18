@@ -9,3 +9,122 @@
   padding: 11px 14px;
   text-decoration: none;
 }
+
+.student-access-panel {
+  border-top: 4px solid var(--green);
+}
+
+.student-limited-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 1.2fr) auto;
+  align-items: center;
+  gap: 18px;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f4faf1;
+  padding: 16px;
+}
+
+.student-limited-details {
+  display: grid;
+  gap: 7px;
+}
+
+.student-limited-details span {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: .82rem;
+}
+
+.student-limited-details strong {
+  color: var(--ink);
+}
+
+@media (max-width: 820px) {
+  .student-limited-view {
+    grid-template-columns: 1fr;
+  }
+}
+
+.auth-welcome,
+.auth-step,
+.auth-dashboard {
+  display: grid;
+  gap: 18px;
+  border-top: 4px solid var(--yellow);
+}
+
+.auth-welcome,
+.auth-dashboard {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.auth-step .panel-heading {
+  margin-bottom: 4px;
+}
+
+.auth-form {
+  margin-top: 4px;
+}
+
+.auth-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.auth-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+
+.auth-summary span {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid var(--green);
+  background: #f4faf1;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: .78rem;
+}
+
+.auth-summary strong {
+  color: var(--ink);
+  font-size: .72rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.text-button {
+  min-height: auto;
+  width: fit-content;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: .9rem;
+}
+
+.text-button:hover {
+  background: transparent;
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
+@media (max-width: 820px) {
+  .auth-welcome,
+  .auth-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

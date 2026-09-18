@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
+type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
 
 type DocumentRecord = {
   id: string;
@@ -148,6 +149,17 @@ function loadState(): AppState {
   }
 }
 
+function persistState(state: AppState) {
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(state, (key, value) => key === "dataUrl" ? "" : value)
+    );
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
 function normalizeState(state: Partial<AppState>): AppState {
   const parents = state.parents ?? initialState.parents;
   const existingUsers = state.users ?? [];
@@ -213,13 +225,26 @@ export default function GuardianPortal() {
   const [state, setState] = useState<AppState>(initialState);
   const [selectedParentId, setSelectedParentId] = useState("");
   const [message, setMessage] = useState("");
+  const [authStage, setAuthStage] = useState<AuthStage>("welcome");
+  const [sessionUserId, setSessionUserId] = useState("");
+  const [studentAccessChildId, setStudentAccessChildId] = useState("");
+  const [studentAccessMessage, setStudentAccessMessage] = useState("");
 
   useEffect(() => {
-    setState(loadState());
+    const loadedState = loadState();
+    setState(loadedState);
+    const savedUserId = window.sessionStorage.getItem("ostn.guardian.session");
+    if (savedUserId) {
+      const savedAuth = loadedState.authentications.find((item) => item.userId === savedUserId);
+      if (savedAuth) {
+        setSessionUserId(savedUserId);
+        setAuthStage(savedAuth.otpVerified ? "dashboard" : "verify");
+      }
+    }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistState(state);
   }, [state]);
 
   const approvedSchools = state.schools.filter((school) => school.status === "approved");
@@ -243,7 +268,8 @@ export default function GuardianPortal() {
 
   async function registerParent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const upload = await readFile(form.get("document") as File);
     const userId = uid("user");
     const createdAt = new Date().toISOString();
@@ -253,7 +279,7 @@ export default function GuardianPortal() {
       phone: String(form.get("phone")),
       otpVerified: false,
       identityStatus: upload ? "pending" : "rejected",
-      schoolId: String(form.get("schoolId")),
+      schoolId: undefined,
       children: [],
       documents: makeDocument("Parent identity", upload),
       createdAt
@@ -285,7 +311,9 @@ export default function GuardianPortal() {
       parentId: record.id,
       createdAt
     };
-    let selectedId = record.id;
+    const existingParent = state.parents.find((item) => item.phone === record.phone);
+    const existingAuthentication = state.authentications.find((item) => item.phone === record.phone);
+    let selectedId = existingParent?.id ?? record.id;
     commit(
       (current) => {
         const existing = current.parents.find((item) => item.phone === record.phone);
@@ -338,7 +366,11 @@ export default function GuardianPortal() {
       `Guardian registration submitted for ${record.name}`
     );
     setSelectedParentId(selectedId);
-    event.currentTarget.reset();
+    const activeUserId = existingAuthentication?.userId ?? userId;
+    window.sessionStorage.setItem("ostn.guardian.session", activeUserId);
+    setSessionUserId(activeUserId);
+    setAuthStage("verify");
+    formElement.reset();
   }
 
   function verifyOtp() {
@@ -351,6 +383,11 @@ export default function GuardianPortal() {
       }),
       "Phone verification completed"
     );
+    const authentication = state.authentications.find((item) => item.userId === sessionUserId);
+    if (authentication) {
+      window.sessionStorage.setItem("ostn.guardian.session", authentication.userId);
+    }
+    setAuthStage("dashboard");
   }
 
   function signInParent(event: FormEvent<HTMLFormElement>) {
@@ -363,9 +400,50 @@ export default function GuardianPortal() {
       return;
     }
     setSelectedParentId(matchedParent.id);
+    setSessionUserId(authentication.userId);
+    window.sessionStorage.setItem("ostn.guardian.session", authentication.userId);
     setMessage("Signed in. Verify your phone below to continue.");
+    setAuthStage(authentication.otpVerified ? "dashboard" : "verify");
     event.currentTarget.reset();
   }
+
+  function signOut() {
+    window.sessionStorage.removeItem("ostn.guardian.session");
+    setSessionUserId("");
+    setSelectedParentId("");
+    setAuthStage("welcome");
+    setStudentAccessChildId("");
+    setStudentAccessMessage("");
+    setMessage("You have been signed out of this device.");
+  }
+
+  function signInStudent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const studentIdentifier = String(form.get("studentId")).trim().toUpperCase();
+    const guardianPhone = String(form.get("guardianPhone")).trim();
+    const matchedChild = parent?.children.find(
+      (child) => child.pseudonymousId === studentIdentifier && (child.guardianPhone ?? parent.phone) === guardianPhone
+    );
+    if (!matchedChild) {
+      setStudentAccessMessage("That student ID could not be verified for this guardian account.");
+      return;
+    }
+    setStudentAccessChildId(matchedChild.id);
+    setStudentAccessMessage("Limited student view unlocked.");
+    event.currentTarget.reset();
+  }
+
+  function signOutStudent() {
+    setStudentAccessChildId("");
+    setStudentAccessMessage("Student view locked.");
+  }
+
+  const sessionAuth = state.authentications.find((item) => item.userId === sessionUserId);
+  const sessionUser = state.users.find((item) => item.id === sessionUserId);
+  const sessionIdentity = state.identities.find((item) => item.userId === sessionUserId);
+  const sessionProfile = state.guardianProfiles.find((item) => item.userId === sessionUserId);
+  const studentAccessChild = parent?.children.find((child) => child.id === studentAccessChildId);
 
   function claimChildren(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -433,6 +511,24 @@ export default function GuardianPortal() {
 
       {message ? <p className="toast">{message}</p> : null}
 
+      <AuthJourney
+        stage={authStage}
+        sessionAuth={sessionAuth}
+        sessionUser={sessionUser}
+        sessionIdentity={sessionIdentity}
+        sessionProfile={sessionProfile}
+        parent={parent}
+        onStartRegister={() => setAuthStage("register")}
+        onStartSignIn={() => setAuthStage("signin")}
+        onRegister={registerParent}
+        onSignIn={signInParent}
+        onVerify={verifyOtp}
+        onDashboard={() => setAuthStage("dashboard")}
+        onSignOut={signOut}
+      />
+
+      {authStage === "dashboard" ? <>
+
       <section className="panel">
         <div className="panel-heading">
           <h2>Register and verify</h2>
@@ -446,14 +542,6 @@ export default function GuardianPortal() {
           <label>
             Phone
             <input name="phone" required placeholder="+256..." />
-          </label>
-          <label>
-            Search school
-            <select name="schoolId" required>
-              {approvedSchools.map((school) => (
-                <option key={school.id} value={school.id}>{school.name}</option>
-              ))}
-            </select>
           </label>
           <label>
             Identity document
@@ -576,12 +664,161 @@ export default function GuardianPortal() {
           ))}
         </div>
       </section>
+
+      <section className="panel student-access-panel">
+        <div className="panel-heading">
+          <p className="eyebrow">Limited student view</p>
+          <h2>Student access from your guardian dashboard</h2>
+          <p>A student can use their private ID to view only their own school and transport status. This is not part of the school administration dashboard.</p>
+        </div>
+        <form onSubmit={signInStudent} className="form-grid">
+          <label>
+            Student ID
+            <input name="studentId" required placeholder="STU-7K4P9X" disabled={!parent} />
+          </label>
+          <label>
+            Linked guardian phone
+            <input name="guardianPhone" type="tel" required placeholder="+256..." disabled={!parent} />
+          </label>
+          <button type="submit" disabled={!parent}>Open limited view</button>
+        </form>
+        {studentAccessMessage ? <p className="helper" role="status">{studentAccessMessage}</p> : null}
+        {studentAccessChild ? (
+          <div className="student-limited-view">
+            <div>
+              <p className="eyebrow">Student session</p>
+              <h3>{studentAccessChild.pseudonymousId}</h3>
+              <p>{schoolName(state, studentAccessChild.schoolId)}</p>
+            </div>
+            <div className="student-limited-details">
+              <span><strong>Relationship</strong>{studentAccessChild.verificationStatus}</span>
+              <span><strong>Transport</strong>Trip details appear when assigned</span>
+              <span><strong>Personal data</strong>Limited to this student record</span>
+            </div>
+            <button type="button" className="ghost" onClick={signOutStudent}>Lock student view</button>
+          </div>
+        ) : null}
+      </section>
+      </> : null}
     </main>
   );
 }
 
 function StatusPill({ status, label }: { status: Status; label?: string }) {
   return <span className={`pill ${status}`}>{label ?? status}</span>;
+}
+
+function AuthJourney({
+  stage,
+  sessionAuth,
+  sessionUser,
+  sessionIdentity,
+  sessionProfile,
+  parent,
+  onStartRegister,
+  onStartSignIn,
+  onRegister,
+  onSignIn,
+  onVerify,
+  onDashboard,
+  onSignOut
+}: {
+  stage: AuthStage;
+  sessionAuth?: AuthenticationRecord;
+  sessionUser?: UserRecord;
+  sessionIdentity?: IdentityRecord;
+  sessionProfile?: GuardianProfileRecord;
+  parent?: ParentRecord;
+  onStartRegister: () => void;
+  onStartSignIn: () => void;
+  onRegister: (event: FormEvent<HTMLFormElement>) => void;
+  onSignIn: (event: FormEvent<HTMLFormElement>) => void;
+  onVerify: () => void;
+  onDashboard: () => void;
+  onSignOut: () => void;
+}) {
+  if (stage === "dashboard" && sessionUser && sessionIdentity && sessionProfile && parent) {
+    return (
+      <section className="auth-dashboard panel">
+        <div>
+          <p className="eyebrow">Signed-in guardian workspace</p>
+          <h2>Welcome back, {parent.name.split(" ")[0]}</h2>
+          <p>Your account is separated into authentication, user, identity, and guardian profile records.</p>
+        </div>
+        <div className="auth-summary">
+          <span><strong>Authentication</strong>{sessionAuth?.otpVerified ? "Phone verified" : "Phone pending"}</span>
+          <span><strong>User</strong>{sessionUser.primaryRole}</span>
+          <span><strong>IdentityRecord</strong>{sessionIdentity.verificationStatus}</span>
+          <span><strong>Guardian profile</strong>{parent.children.length} linked child{parent.children.length === 1 ? "" : "ren"}</span>
+        </div>
+        <button type="button" className="ghost" onClick={onSignOut}>Sign out</button>
+      </section>
+    );
+  }
+
+  if (stage === "verify" && parent) {
+    return (
+      <section className="auth-step panel">
+        <div>
+          <p className="eyebrow">Step 2 of 2 · Phone verification</p>
+          <h2>Confirm your guardian account</h2>
+          <p>We have a local verification code ready for <strong>{parent.phone}</strong>. Confirm it to open your workspace.</p>
+        </div>
+        <div className="auth-step-actions">
+          <button type="button" onClick={onVerify} disabled={parent.otpVerified}>Verify phone OTP</button>
+          <button type="button" className="ghost" onClick={onDashboard}>Continue to account</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (stage === "register") {
+    return (
+      <section className="auth-step panel">
+        <div className="panel-heading">
+          <p className="eyebrow">Step 1 of 2 · Profile registration</p>
+          <h2>Create your guardian profile</h2>
+          <p>Authentication details, identity evidence, and your guardian profile are stored separately.</p>
+        </div>
+        <form onSubmit={onRegister} className="form-grid auth-form">
+          <label>Guardian name<input name="name" required placeholder="Amina Kato" /></label>
+          <label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label>
+          <label>Identity document<input name="document" type="file" accept="image/*,.pdf" required /></label>
+          <button type="submit">Create profile</button>
+        </form>
+        <p className="helper">School access becomes available after the Trust Desk approves your identity.</p>
+        <button type="button" className="text-button" onClick={onStartSignIn}>Already registered? Sign in</button>
+      </section>
+    );
+  }
+
+  if (stage === "signin") {
+    return (
+      <section className="auth-step panel">
+        <div className="panel-heading">
+          <p className="eyebrow">Account access</p>
+          <h2>Sign in to your guardian profile</h2>
+          <p>Use the phone number attached to your authentication record.</p>
+        </div>
+        <form onSubmit={onSignIn} className="inline-form auth-form">
+          <label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label>
+          <button type="submit">Continue</button>
+        </form>
+        <button type="button" className="text-button" onClick={onStartRegister}>Create a new guardian profile</button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="auth-welcome panel">
+      <div>
+        <p className="eyebrow">Guardian access</p>
+        <h2>Keep every school journey connected.</h2>
+        <p>Register a guardian profile or sign in to manage school access, linked children, and verification status.</p>
+      </div>
+      <div className="auth-step-actions"><button type="button" onClick={onStartRegister}>Create guardian profile</button><button type="button" className="ghost" onClick={onStartSignIn}>Sign in</button></div>
+    </section>
+  );
 }
 
 function schoolName(state: AppState, id?: string) {

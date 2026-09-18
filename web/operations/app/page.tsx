@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
 type OwnerType = "guardian" | "driver" | "school" | "vehicle";
+type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
 
 type DocumentRecord = {
   id: string;
@@ -97,11 +98,23 @@ type AppState = {
   users: unknown[];
   identities: IdentityRecord[];
   guardianProfiles: GuardianProfileRecord[];
+  schoolAuthentications: unknown[];
+  schoolUsers: unknown[];
+  schoolIdentities: unknown[];
+  schoolStaffProfiles: unknown[];
+  studentAuthentications: unknown[];
+  studentUsers: unknown[];
+  studentProfiles: unknown[];
+  driverAuthentications: unknown[];
+  driverUsers: unknown[];
+  driverIdentities: unknown[];
+  driverProfiles: unknown[];
   drivers: DriverRecord[];
   schools: SchoolRecord[];
   vehicles: VehicleRecord[];
   schoolIdRequests: SchoolIdRequestRecord[];
   audit: string[];
+  operatorAccount?: { name: string; phone: string; otpVerified: boolean };
 };
 
 type ReviewItem = {
@@ -121,6 +134,17 @@ const initialState: AppState = {
   users: [],
   identities: [],
   guardianProfiles: [],
+  schoolAuthentications: [],
+  schoolUsers: [],
+  schoolIdentities: [],
+  schoolStaffProfiles: [],
+  studentAuthentications: [],
+  studentUsers: [],
+  studentProfiles: [],
+  driverAuthentications: [],
+  driverUsers: [],
+  driverIdentities: [],
+  driverProfiles: [],
   drivers: [],
   schools: [
     {
@@ -137,6 +161,7 @@ const initialState: AppState = {
   vehicles: [],
   schoolIdRequests: [],
   audit: ["MVP workspace created"]
+  ,operatorAccount: undefined
 };
 
 function loadState(): AppState {
@@ -151,6 +176,17 @@ function loadState(): AppState {
   }
 }
 
+function persistState(state: AppState) {
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(state, (key, value) => key === "dataUrl" ? "" : value)
+    );
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
 function normalizeState(state: Partial<AppState>): AppState {
   return {
     parents: state.parents ?? initialState.parents,
@@ -158,6 +194,17 @@ function normalizeState(state: Partial<AppState>): AppState {
     users: state.users ?? initialState.users,
     identities: state.identities ?? initialState.identities,
     guardianProfiles: state.guardianProfiles ?? initialState.guardianProfiles,
+    schoolAuthentications: state.schoolAuthentications ?? initialState.schoolAuthentications,
+    schoolUsers: state.schoolUsers ?? initialState.schoolUsers,
+    schoolIdentities: state.schoolIdentities ?? initialState.schoolIdentities,
+    schoolStaffProfiles: state.schoolStaffProfiles ?? initialState.schoolStaffProfiles,
+    studentAuthentications: state.studentAuthentications ?? initialState.studentAuthentications,
+    studentUsers: state.studentUsers ?? initialState.studentUsers,
+    studentProfiles: state.studentProfiles ?? initialState.studentProfiles,
+    driverAuthentications: state.driverAuthentications ?? initialState.driverAuthentications,
+    driverUsers: state.driverUsers ?? initialState.driverUsers,
+    driverIdentities: state.driverIdentities ?? initialState.driverIdentities,
+    driverProfiles: state.driverProfiles ?? initialState.driverProfiles,
     drivers: state.drivers ?? initialState.drivers,
     schools: (state.schools ?? initialState.schools).map((school) =>
       school.status === "approved" && !school.verifiedByOrganizationId
@@ -167,20 +214,26 @@ function normalizeState(state: Partial<AppState>): AppState {
     vehicles: state.vehicles ?? initialState.vehicles,
     schoolIdRequests: state.schoolIdRequests ?? [],
     audit: state.audit ?? initialState.audit
+    ,operatorAccount: state.operatorAccount
   };
 }
 
 export default function OperationsConsole() {
   const [state, setState] = useState<AppState>(initialState);
   const [message, setMessage] = useState("");
+  const [authStage, setAuthStage] = useState<AuthStage>("welcome");
 
   useEffect(() => {
-    setState(loadState());
+    const loadedState = loadState();
+    setState(loadedState);
+    if (window.sessionStorage.getItem("ostn.operations.session") && loadedState.operatorAccount?.otpVerified) {
+      setAuthStage("dashboard");
+    }
   }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      persistState(state);
     }
   }, [state]);
 
@@ -221,6 +274,43 @@ export default function OperationsConsole() {
   }, [state]);
 
   const pendingItems = reviewItems.filter((item) => item.document.status === "pending");
+  const schoolReviewItems = reviewItems.filter((item) => item.ownerType === "school");
+
+  function registerOperator(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const account = { name: String(form.get("name")), phone: String(form.get("phone")), otpVerified: false };
+    setState((current) => ({ ...current, operatorAccount: account }));
+    window.sessionStorage.setItem("ostn.operations.session", "pending");
+    setAuthStage("verify");
+    setMessage("Operations account created. Verify the operator phone to continue.");
+    event.currentTarget.reset();
+  }
+
+  function signInOperator(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const phone = String(new FormData(event.currentTarget).get("phone"));
+    if (!state.operatorAccount || state.operatorAccount.phone !== phone) {
+      setMessage("No operations account was found for that phone number.");
+      return;
+    }
+    window.sessionStorage.setItem("ostn.operations.session", "pending");
+    setAuthStage(state.operatorAccount.otpVerified ? "dashboard" : "verify");
+    setMessage("Operations account found. Verify the phone to continue.");
+  }
+
+  function verifyOperator() {
+    setState((current) => ({ ...current, operatorAccount: current.operatorAccount ? { ...current.operatorAccount, otpVerified: true } : current.operatorAccount }));
+    window.sessionStorage.setItem("ostn.operations.session", "verified");
+    setAuthStage("dashboard");
+    setMessage("Operations phone verified.");
+  }
+
+  function signOutOperator() {
+    window.sessionStorage.removeItem("ostn.operations.session");
+    setAuthStage("welcome");
+    setMessage("Operations account signed out.");
+  }
 
   function commit(updater: (draft: AppState) => AppState, audit: string) {
     setState((current) => {
@@ -320,6 +410,21 @@ export default function OperationsConsole() {
         <span className="pill approved">{VERIFICATION_ORG_NAME}</span>
       </header>
 
+      {message ? <p className="toast">{message}</p> : null}
+
+      <OperationsAuthJourney
+        stage={authStage}
+        account={state.operatorAccount}
+        onStartRegister={() => setAuthStage("register")}
+        onStartSignIn={() => setAuthStage("signin")}
+        onRegister={registerOperator}
+        onSignIn={signInOperator}
+        onVerify={verifyOperator}
+        onSignOut={signOutOperator}
+      />
+
+      {authStage === "dashboard" ? <>
+
       <section className="summary">
         <Metric label="Guardians" value={state.parents.length} />
         <Metric label="Drivers" value={state.drivers.length} />
@@ -327,7 +432,25 @@ export default function OperationsConsole() {
         <Metric label="Pending docs" value={pendingItems.length} />
       </section>
 
-      {message ? <p className="toast">{message}</p> : null}
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>School approvals</h2>
+          <p>Approve school registration evidence here. Approved schools become visible to identity-verified guardians when they request school access.</p>
+        </div>
+        <div className="review-list">
+          {schoolReviewItems.length === 0 ? <p className="empty">No school registration evidence has been submitted.</p> : null}
+          {schoolReviewItems.map((item) => (
+            <article key={`school-${item.document.id}`} className="review-item">
+              <div>
+                <strong>{item.ownerName}</strong>
+                <p>{item.document.kind} / {item.document.fileName}</p>
+              </div>
+              <StatusPill status={item.document.status} />
+              <button type="button" onClick={() => approveDocument(item.ownerType, item.ownerId, item.document.id)} disabled={item.document.status === "approved"}>Approve school</button>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <section className="panel">
         <div className="panel-heading">
@@ -369,8 +492,17 @@ export default function OperationsConsole() {
           ))}
         </ol>
       </section>
+      </> : null}
     </main>
   );
+}
+
+function OperationsAuthJourney({ stage, account, onStartRegister, onStartSignIn, onRegister, onSignIn, onVerify, onSignOut }: { stage: AuthStage; account?: { name: string; phone: string; otpVerified: boolean }; onStartRegister: () => void; onStartSignIn: () => void; onRegister: (event: FormEvent<HTMLFormElement>) => void; onSignIn: (event: FormEvent<HTMLFormElement>) => void; onVerify: () => void; onSignOut: () => void }) {
+  if (stage === "dashboard") return <section className="auth-dashboard panel"><div><p className="eyebrow">Operations workspace</p><h2>Verification console</h2><p>{account?.name ?? "Operator"}, you are signed in to the accountable review workspace.</p></div><div className="auth-summary"><span><strong>Authentication</strong>{account?.otpVerified ? "Phone verified" : "Phone pending"}</span><span><strong>Role</strong>Operations</span><span><strong>Access</strong>Review and audit</span></div><button type="button" className="ghost" onClick={onSignOut}>Sign out</button></section>;
+  if (stage === "verify") return <section className="auth-step panel"><div><p className="eyebrow">Step 2 of 2 · Operator verification</p><h2>Confirm operations access</h2><p>Verify the phone attached to the operations account before reviewing identity evidence.</p></div><button type="button" onClick={onVerify} disabled={account?.otpVerified}>Verify phone OTP</button></section>;
+  if (stage === "register") return <section className="auth-step panel"><div className="panel-heading"><p className="eyebrow">Step 1 of 2 · Operator registration</p><h2>Create an operations account</h2><p>Operations access is separate from reviewed identities and role profiles.</p></div><form onSubmit={onRegister} className="form-grid auth-form"><label>Operator name<input name="name" required placeholder="Trust Desk Officer" /></label><label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label><button type="submit">Create account</button></form><button type="button" className="text-button" onClick={onStartSignIn}>Already registered? Sign in</button></section>;
+  if (stage === "signin") return <section className="auth-step panel"><div className="panel-heading"><p className="eyebrow">Operations account access</p><h2>Sign in to the verification console</h2><p>Use the phone number attached to your operations authentication record.</p></div><form onSubmit={onSignIn} className="inline-form auth-form"><label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label><button type="submit">Continue</button></form><button type="button" className="text-button" onClick={onStartRegister}>Register operations account</button></section>;
+  return <section className="auth-welcome panel"><div><p className="eyebrow">Operations access</p><h2>Review identity evidence responsibly.</h2><p>Sign in to access verification actions and the audit trail.</p></div><div className="auth-step-actions"><button type="button" onClick={onStartRegister}>Create account</button><button type="button" className="ghost" onClick={onStartSignIn}>Sign in</button></div></section>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

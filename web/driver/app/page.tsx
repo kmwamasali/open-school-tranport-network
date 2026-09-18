@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
+type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
 
 type DocumentRecord = {
   id: string;
@@ -45,6 +46,37 @@ type DriverRecord = {
   createdAt: string;
 };
 
+type DriverAuthenticationRecord = {
+  id: string;
+  userId: string;
+  phone: string;
+  otpVerified: boolean;
+  createdAt: string;
+};
+
+type DriverUserRecord = {
+  id: string;
+  primaryRole: "driver";
+  isActive: boolean;
+  createdAt: string;
+};
+
+type DriverIdentityRecord = {
+  id: string;
+  userId: string;
+  legalName: string;
+  verificationStatus: Status;
+  documents: DocumentRecord[];
+  createdAt: string;
+};
+
+type DriverProfileRecord = {
+  id: string;
+  userId: string;
+  driverId: string;
+  createdAt: string;
+};
+
 type SchoolRecord = {
   id: string;
   name: string;
@@ -75,6 +107,10 @@ type SchoolIdRequestRecord = {
 
 type AppState = {
   parents: ParentRecord[];
+  driverAuthentications: DriverAuthenticationRecord[];
+  driverUsers: DriverUserRecord[];
+  driverIdentities: DriverIdentityRecord[];
+  driverProfiles: DriverProfileRecord[];
   drivers: DriverRecord[];
   schools: SchoolRecord[];
   vehicles: VehicleRecord[];
@@ -92,6 +128,10 @@ const VERIFICATION_ORG_ID = "org-ostn-trust";
 
 const initialState: AppState = {
   parents: [],
+  driverAuthentications: [],
+  driverUsers: [],
+  driverIdentities: [],
+  driverProfiles: [],
   drivers: [],
   schools: [
     {
@@ -124,9 +164,24 @@ function loadState(): AppState {
   }
 }
 
+function persistState(state: AppState) {
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(state, (key, value) => key === "dataUrl" ? "" : value)
+    );
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
 function normalizeState(state: Partial<AppState>): AppState {
   return {
     parents: state.parents ?? initialState.parents,
+    driverAuthentications: state.driverAuthentications ?? initialState.driverAuthentications,
+    driverUsers: state.driverUsers ?? initialState.driverUsers,
+    driverIdentities: state.driverIdentities ?? initialState.driverIdentities,
+    driverProfiles: state.driverProfiles ?? initialState.driverProfiles,
     drivers: state.drivers ?? initialState.drivers,
     schools: state.schools ?? initialState.schools,
     vehicles: state.vehicles ?? initialState.vehicles,
@@ -164,13 +219,23 @@ export default function DriverPortal() {
   const [state, setState] = useState<AppState>(initialState);
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [message, setMessage] = useState("");
+  const [authStage, setAuthStage] = useState<AuthStage>("welcome");
+  const [sessionUserId, setSessionUserId] = useState("");
 
   useEffect(() => {
-    setState(loadState());
+    const loadedState = loadState();
+    setState(loadedState);
+    const savedUserId = window.sessionStorage.getItem("ostn.driver.session");
+    const savedProfile = loadedState.driverProfiles.find((item) => item.userId === savedUserId);
+    if (savedUserId && savedProfile) {
+      setSessionUserId(savedUserId);
+      setSelectedDriverId(savedProfile.driverId);
+      setAuthStage("dashboard");
+    }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistState(state);
   }, [state]);
 
   const selectedDriver = state.drivers.find((driver) => driver.id === selectedDriverId);
@@ -178,6 +243,7 @@ export default function DriverPortal() {
     () => state.vehicles.filter((vehicle) => vehicle.driverId === selectedDriverId),
     [selectedDriverId, state.vehicles]
   );
+  const sessionAuth = state.driverAuthentications.find((item) => item.userId === sessionUserId);
 
   function commit(updater: (current: AppState) => AppState, audit: string) {
     setState((current) => {
@@ -189,7 +255,8 @@ export default function DriverPortal() {
 
   async function registerDriver(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const upload = await readFile(form.get("document") as File);
     const driver: DriverRecord = {
       id: uid("driver"),
@@ -199,12 +266,50 @@ export default function DriverPortal() {
       documents: makeDocument("Driver identity or licence", upload),
       createdAt: new Date().toISOString()
     };
+    const userId = uid("driver-user");
+    const driverAuth: DriverAuthenticationRecord = { id: uid("driver-auth"), userId, phone: driver.phone, otpVerified: false, createdAt: driver.createdAt };
+    const driverUser: DriverUserRecord = { id: userId, primaryRole: "driver", isActive: true, createdAt: driver.createdAt };
+    const driverIdentity: DriverIdentityRecord = { id: uid("driver-identity"), userId, legalName: driver.name, verificationStatus: driver.status, documents: driver.documents, createdAt: driver.createdAt };
+    const driverProfile: DriverProfileRecord = { id: uid("driver-profile"), userId, driverId: driver.id, createdAt: driver.createdAt };
     commit(
-      (current) => ({ ...current, drivers: [...current.drivers, driver] }),
+      (current) => ({ ...current, drivers: [...current.drivers, driver], driverAuthentications: [...current.driverAuthentications, driverAuth], driverUsers: [...current.driverUsers, driverUser], driverIdentities: [...current.driverIdentities, driverIdentity], driverProfiles: [...current.driverProfiles, driverProfile] }),
       `Driver application submitted for ${driver.name}`
     );
     setSelectedDriverId(driver.id);
-    event.currentTarget.reset();
+    setSessionUserId(userId);
+    window.sessionStorage.setItem("ostn.driver.session", userId);
+    setAuthStage("verify");
+    formElement.reset();
+  }
+
+  function signInDriver(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const phone = String(new FormData(event.currentTarget).get("phone"));
+    const authentication = state.driverAuthentications.find((item) => item.phone === phone);
+    const profile = authentication && state.driverProfiles.find((item) => item.userId === authentication.userId);
+    if (!authentication || !profile) {
+      setMessage("No driver account was found for that phone number.");
+      return;
+    }
+    setSessionUserId(authentication.userId);
+    setSelectedDriverId(profile.driverId);
+    window.sessionStorage.setItem("ostn.driver.session", authentication.userId);
+    setAuthStage(authentication.otpVerified ? "dashboard" : "verify");
+    setMessage("Driver account found. Verify the phone to continue.");
+  }
+
+  function verifyDriverPhone() {
+    if (!sessionUserId) return;
+    commit((current) => ({ ...current, driverAuthentications: current.driverAuthentications.map((item) => item.userId === sessionUserId ? { ...item, otpVerified: true } : item) }), "Driver phone verified");
+    setAuthStage("dashboard");
+  }
+
+  function signOutDriver() {
+    window.sessionStorage.removeItem("ostn.driver.session");
+    setSessionUserId("");
+    setSelectedDriverId("");
+    setAuthStage("welcome");
+    setMessage("Driver account signed out.");
   }
 
   async function addDriverDocument(event: FormEvent<HTMLFormElement>) {
@@ -260,6 +365,21 @@ export default function DriverPortal() {
       </header>
 
       {message ? <p className="toast">{message}</p> : null}
+
+      <DriverAuthJourney
+        stage={authStage}
+        driver={selectedDriver}
+        sessionAuth={sessionAuth}
+        onStartRegister={() => setAuthStage("register")}
+        onStartSignIn={() => setAuthStage("signin")}
+        onRegister={registerDriver}
+        onSignIn={signInDriver}
+        onVerify={verifyDriverPhone}
+        onDashboard={() => setAuthStage("dashboard")}
+        onSignOut={signOutDriver}
+      />
+
+      {authStage === "dashboard" ? <>
 
       <section className="panel">
         <div className="panel-heading">
@@ -359,8 +479,47 @@ export default function DriverPortal() {
           ))}
         </div>
       </section>
+      </> : null}
     </main>
   );
+}
+
+function DriverAuthJourney({
+  stage,
+  driver,
+  sessionAuth,
+  onStartRegister,
+  onStartSignIn,
+  onRegister,
+  onSignIn,
+  onVerify,
+  onDashboard,
+  onSignOut
+}: {
+  stage: AuthStage;
+  driver?: DriverRecord;
+  sessionAuth?: DriverAuthenticationRecord;
+  onStartRegister: () => void;
+  onStartSignIn: () => void;
+  onRegister: (event: FormEvent<HTMLFormElement>) => void;
+  onSignIn: (event: FormEvent<HTMLFormElement>) => void;
+  onVerify: () => void;
+  onDashboard: () => void;
+  onSignOut: () => void;
+}) {
+  if (stage === "dashboard") {
+    return <section className="auth-dashboard panel"><div><p className="eyebrow">Driver workspace</p><h2>{driver?.name ?? "Driver dashboard"}</h2><p>Manage verification evidence and vehicle access from your driver profile.</p></div><div className="auth-summary"><span><strong>Authentication</strong>{sessionAuth?.otpVerified ? "Phone verified" : "Phone pending"}</span><span><strong>Driver identity</strong>{driver?.status ?? "pending"}</span><span><strong>Vehicle access</strong>{driver?.status === "approved" ? "Available" : "Locked"}</span></div><button type="button" className="ghost" onClick={onSignOut}>Sign out</button></section>;
+  }
+  if (stage === "verify") {
+    return <section className="auth-step panel"><div><p className="eyebrow">Step 2 of 2 · Phone verification</p><h2>Confirm your driver account</h2><p>Verify the phone attached to your driver authentication record before continuing.</p></div><div className="auth-step-actions"><button type="button" onClick={onVerify} disabled={sessionAuth?.otpVerified}>Verify phone OTP</button><button type="button" className="ghost" onClick={onDashboard}>Continue to dashboard</button></div></section>;
+  }
+  if (stage === "register") {
+    return <section className="auth-step panel"><div className="panel-heading"><p className="eyebrow">Step 1 of 2 · Driver registration</p><h2>Create your driver profile</h2><p>Authentication, driver identity evidence, and the driver role profile remain separate records.</p></div><form onSubmit={onRegister} className="form-grid auth-form"><label>Driver name<input name="name" required placeholder="Daniel Okello" /></label><label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label><label>Licence or identity document<input name="document" type="file" accept="image/*,.pdf" required /></label><button type="submit">Create driver profile</button></form><button type="button" className="text-button" onClick={onStartSignIn}>Already registered? Sign in</button></section>;
+  }
+  if (stage === "signin") {
+    return <section className="auth-step panel"><div className="panel-heading"><p className="eyebrow">Driver account access</p><h2>Sign in to the driver portal</h2><p>Use the phone number attached to your driver authentication record.</p></div><form onSubmit={onSignIn} className="inline-form auth-form"><label>Phone number<input name="phone" type="tel" required placeholder="+256..." /></label><button type="submit">Continue</button></form><button type="button" className="text-button" onClick={onStartRegister}>Register as a driver</button></section>;
+  }
+  return <section className="auth-welcome panel"><div><p className="eyebrow">Driver access</p><h2>Build a trusted school transport profile.</h2><p>Register or sign in to submit identity evidence, track approval, and unlock vehicle registration.</p></div><div className="auth-step-actions"><button type="button" onClick={onStartRegister}>Register as driver</button><button type="button" className="ghost" onClick={onStartSignIn}>Sign in</button></div></section>;
 }
 
 function StatusPill({ status, label }: { status: Status; label?: string }) {
