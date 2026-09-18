@@ -34,6 +34,7 @@ backend/
 web/
   guardian/
   school_admin/
+  driver/
   operations/
 
 mobile/
@@ -45,19 +46,30 @@ packages/
   protocol/
 ```
 
-The runnable phase-1 MVP is currently in `web/operations`. It includes the local prototype flows for parent, driver, school, and admin verification, including document upload, admin preview, and approval.
+The runnable phase-1 MVP is split by responsibility:
 
-Run it from the repository root:
+- `web/guardian`: parent/guardian registration, identity self-application, school ID requests, and child link tracking
+- `web/school_admin`: school registration, guardian ID request review, school-owned child creation, and school-scoped relationship verification
+- `web/driver`: standalone driver and fleet-operator onboarding, document submission, approval tracking, and vehicle submission after driver verification
+- `web/operations`: admin/NGO verification console for reviewing submitted profile evidence and approving guardians, schools, drivers, and vehicles
+
+Run a portal from the repository root:
 
 ```bash
 npm install
 npm run dev:operations
+npm run dev:driver
+npm run dev:guardian
+npm run dev:school
 ```
 
-Then open:
+Default local ports:
 
 ```text
-http://localhost:3000
+Operations: http://localhost:3000
+Guardian:   http://localhost:3001
+School:     http://localhost:3002
+Driver:     http://localhost:3003
 ```
 
 The MVP uses browser storage for now. The next milestone is to move persistence and authorization into the Django REST backend under `backend/`.

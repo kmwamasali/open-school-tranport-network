@@ -2,7 +2,7 @@
 
 The production target for this app is Flutter.
 
-Phase-1 driver onboarding is represented in `web/operations` until the API and verification model are stable. The driver mobile app should later own:
+Phase-1 driver onboarding is represented in `web/driver` until the API and verification model are stable. The driver mobile app should later own:
 
 - driver login
 - approval status

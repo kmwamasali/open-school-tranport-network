@@ -5,16 +5,19 @@
   "workspaces": [
     "web/guardian",
     "web/school_admin",
+    "web/driver",
     "web/operations"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @ostn/operations-web",
     "dev:guardian": "npm run dev --workspace @ostn/guardian-web -- --port 3001",
     "dev:school": "npm run dev --workspace @ostn/school-admin-web -- --port 3002",
+    "dev:driver": "npm run dev --workspace @ostn/driver-web -- --port 3003",
     "dev:operations": "npm run dev --workspace @ostn/operations-web -- --port 3000",
-    "build": "npm run build:guardian && npm run build:school && npm run build:operations",
+    "build": "npm run build:guardian && npm run build:school && npm run build:driver && npm run build:operations",
     "build:guardian": "npm run build --workspace @ostn/guardian-web",
     "build:school": "npm run build --workspace @ostn/school-admin-web",
+    "build:driver": "npm run build --workspace @ostn/driver-web",
     "build:operations": "npm run build --workspace @ostn/operations-web"
   }
 }

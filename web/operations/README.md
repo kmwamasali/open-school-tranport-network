@@ -1,19 +1,14 @@
 # Operations Web Application
 
-This is the runnable phase-1 MVP console.
+This is the phase-1 admin/NGO verification console.
 
-It currently includes:
+It is intentionally limited to admin verification work:
 
-- parent registration and document upload
-- parent phone verification simulation
-- school selection
-- child registration
-- driver registration and document submission
-- vehicle document submission
-- school registration
-- school student verification
-- admin document review and approval
+- review submitted guardian, school, driver, and vehicle evidence
+- approve verified profiles under the configured verification organization
 - a local audit trail
+
+It does not include driver onboarding, guardian self-service, or school workflows. Those live in their own portals.
 
 Run it from the repository root with:
 

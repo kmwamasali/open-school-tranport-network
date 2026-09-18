@@ -98,6 +98,20 @@ button:hover {
   background: var(--accent-strong);
 }
 
+.nav-link {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 button:disabled {
   background: #a6b1ac;
   cursor: not-allowed;
@@ -166,6 +180,13 @@ button:disabled {
   margin-top: 18px;
   padding: 22px;
   border-radius: 8px;
+}
+
+.subpanel {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
 }
 
 .form-grid {

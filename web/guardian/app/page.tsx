@@ -19,6 +19,7 @@ type ChildRecord = {
   displayName: string;
   pseudonymousId: string;
   schoolId?: string;
+  guardianPhone?: string;
   verificationStatus: Status;
 };
 
@@ -28,6 +29,7 @@ type ParentRecord = {
   phone: string;
   otpVerified: boolean;
   identityStatus: Status;
+  verifiedByOrganizationId?: string;
   schoolId?: string;
   children: ChildRecord[];
   documents: DocumentRecord[];
@@ -40,8 +42,18 @@ type SchoolRecord = {
   contactName: string;
   phone: string;
   status: Status;
+  verifiedByOrganizationId?: string;
   documents: DocumentRecord[];
   createdAt: string;
+};
+
+type SchoolIdRequestRecord = {
+  id: string;
+  parentId: string;
+  schoolId: string;
+  status: Status;
+  createdAt: string;
+  reviewedAt?: string;
 };
 
 type AppState = {
@@ -49,6 +61,7 @@ type AppState = {
   drivers: unknown[];
   schools: SchoolRecord[];
   vehicles: unknown[];
+  schoolIdRequests: SchoolIdRequestRecord[];
   audit: string[];
 };
 
@@ -58,6 +71,8 @@ type UploadedFile = {
 };
 
 const STORAGE_KEY = "ostn.phase1.mvp";
+const VERIFICATION_ORG_ID = "org-ostn-trust";
+const VERIFICATION_ORG_NAME = "OSTN Trust Desk";
 
 const initialState: AppState = {
   parents: [],
@@ -69,28 +84,43 @@ const initialState: AppState = {
       contactName: "School Registrar",
       phone: "+256700000001",
       status: "approved",
+      verifiedByOrganizationId: VERIFICATION_ORG_ID,
       documents: [],
       createdAt: new Date().toISOString()
     }
   ],
   vehicles: [],
+  schoolIdRequests: [],
   audit: ["MVP workspace created"]
 };
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-const pseudoStudentId = () =>
-  `STU-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-
 function loadState(): AppState {
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) return initialState;
   try {
-    return JSON.parse(raw) as AppState;
+    const parsed = JSON.parse(raw) as Partial<AppState>;
+    return normalizeState(parsed);
   } catch {
     return initialState;
   }
+}
+
+function normalizeState(state: Partial<AppState>): AppState {
+  return {
+    parents: state.parents ?? initialState.parents,
+    drivers: state.drivers ?? initialState.drivers,
+    schools: (state.schools ?? initialState.schools).map((school) =>
+      school.status === "approved" && !school.verifiedByOrganizationId
+        ? { ...school, verifiedByOrganizationId: VERIFICATION_ORG_ID }
+        : school
+    ),
+    vehicles: state.vehicles ?? initialState.vehicles,
+    schoolIdRequests: state.schoolIdRequests ?? [],
+    audit: state.audit ?? initialState.audit
+  };
 }
 
 function readFile(file?: File | null): Promise<UploadedFile | undefined> {
@@ -133,6 +163,13 @@ export default function GuardianPortal() {
 
   const approvedSchools = state.schools.filter((school) => school.status === "approved");
   const parent = state.parents.find((item) => item.id === selectedParentId);
+  const eligibleSchools = parent
+    ? approvedSchools.filter(
+        (school) =>
+          parent.identityStatus === "approved" &&
+          school.verifiedByOrganizationId === parent.verifiedByOrganizationId
+      )
+    : [];
   const myChildren = useMemo(() => parent?.children ?? [], [parent]);
 
   function commit(updater: (current: AppState) => AppState, audit: string) {
@@ -158,8 +195,31 @@ export default function GuardianPortal() {
       documents: makeDocument("Parent identity", upload),
       createdAt: new Date().toISOString()
     };
-    commit((current) => ({ ...current, parents: [...current.parents, record] }), `Guardian registration submitted for ${record.name}`);
-    setSelectedParentId(record.id);
+    let selectedId = record.id;
+    commit(
+      (current) => {
+        const existing = current.parents.find((item) => item.phone === record.phone);
+        if (!existing) return { ...current, parents: [...current.parents, record] };
+        selectedId = existing.id;
+        return {
+          ...current,
+          parents: current.parents.map((item) =>
+            item.id === existing.id
+              ? {
+                  ...item,
+                  name: record.name,
+                  schoolId: record.schoolId,
+                  identityStatus: record.identityStatus,
+                  verifiedByOrganizationId: undefined,
+                  documents: [...item.documents, ...record.documents]
+                }
+              : item
+          )
+        };
+      },
+      `Guardian registration submitted for ${record.name}`
+    );
+    setSelectedParentId(selectedId);
     event.currentTarget.reset();
   }
 
@@ -175,26 +235,56 @@ export default function GuardianPortal() {
     );
   }
 
-  function addChild(event: FormEvent<HTMLFormElement>) {
+  function claimChildren(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const child: ChildRecord = {
-      id: uid("child"),
-      displayName: String(form.get("displayName")),
-      pseudonymousId: pseudoStudentId(),
-      schoolId: String(form.get("schoolId")),
-      verificationStatus: "pending"
-    };
+    const phone = String(form.get("phone"));
+    const schoolId = String(form.get("schoolId"));
     commit(
       (current) => ({
         ...current,
         parents: current.parents.map((item) =>
-          item.id === selectedParentId
-            ? { ...item, schoolId: child.schoolId, children: [...item.children, child] }
+          item.id === selectedParentId && item.phone === phone
+            ? { ...item, schoolId }
             : item
         )
       }),
-      `Child registered with minimal ID ${child.pseudonymousId}`
+      "Guardian linked to school-created child records"
+    );
+    event.currentTarget.reset();
+  }
+
+  function sendSchoolIdRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const schoolId = String(form.get("schoolId"));
+    const school = state.schools.find((item) => item.id === schoolId);
+    if (
+      !parent ||
+      !school ||
+      parent.identityStatus !== "approved" ||
+      parent.verifiedByOrganizationId !== school.verifiedByOrganizationId
+    ) {
+      setMessage("Guardian and school must be approved by the same verification organization");
+      return;
+    }
+    const alreadyRequested = state.schoolIdRequests.some(
+      (request) => request.parentId === parent.id && request.schoolId === schoolId
+    );
+    if (alreadyRequested) {
+      setMessage("Guardian ID request already exists for this school");
+      return;
+    }
+    const request: SchoolIdRequestRecord = {
+      id: uid("school-request"),
+      parentId: parent.id,
+      schoolId,
+      status: "pending",
+      createdAt: new Date().toISOString()
+    };
+    commit(
+      (current) => ({ ...current, schoolIdRequests: [...current.schoolIdRequests, request] }),
+      `Guardian ID request sent to ${school.name}`
     );
     event.currentTarget.reset();
   }
@@ -204,9 +294,8 @@ export default function GuardianPortal() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Guardian Portal</p>
-          <h1>Parent onboarding</h1>
+          <h1>Guardian onboarding</h1>
         </div>
-        <a className="nav-link" href="http://localhost:3002">School portal</a>
       </header>
 
       {message ? <p className="toast">{message}</p> : null}
@@ -214,11 +303,11 @@ export default function GuardianPortal() {
       <section className="panel">
         <div className="panel-heading">
           <h2>Register and verify</h2>
-          <p>Identity evidence is submitted for admin review. Child records use a pseudonymous student ID.</p>
+          <p>Identity evidence is submitted for operations review before school ID requests are available.</p>
         </div>
         <form onSubmit={registerParent} className="form-grid">
           <label>
-            Parent name
+            Guardian name
             <input name="name" required placeholder="Amina Kato" />
           </label>
           <label>
@@ -226,7 +315,7 @@ export default function GuardianPortal() {
             <input name="phone" required placeholder="+256..." />
           </label>
           <label>
-            School
+            Search school
             <select name="schoolId" required>
               {approvedSchools.map((school) => (
                 <option key={school.id} value={school.id}>{school.name}</option>
@@ -244,7 +333,7 @@ export default function GuardianPortal() {
       <section className="panel">
         <div className="panel-heading">
           <h2>My account</h2>
-          <p>Select a local demo guardian to continue phone verification and child registration.</p>
+          <p>Select a local demo guardian to continue phone verification, school ID requests, and child link claims.</p>
         </div>
         <div className="two-column">
           <section>
@@ -266,21 +355,68 @@ export default function GuardianPortal() {
             ) : null}
           </section>
           <section>
-            <form onSubmit={addChild} className="stack">
+            <h3>School ID request</h3>
+            <form onSubmit={sendSchoolIdRequest} className="stack">
               <label>
-                Child display name
-                <input name="displayName" required disabled={!parent} placeholder="Visible only to guardian and school" />
-              </label>
-              <label>
-                School
-                <select name="schoolId" required disabled={!parent}>
-                  {approvedSchools.map((school) => (
+                Verified school
+                <select name="schoolId" required disabled={!parent || parent.identityStatus !== "approved" || eligibleSchools.length === 0}>
+                  {eligibleSchools.map((school) => (
                     <option key={school.id} value={school.id}>{school.name}</option>
                   ))}
                 </select>
               </label>
-              <button type="submit" disabled={!parent}>Register child</button>
+              <button type="submit" disabled={!parent || parent.identityStatus !== "approved" || eligibleSchools.length === 0}>Send ID request</button>
             </form>
+            {parent && parent.identityStatus !== "approved" ? <p className="helper">Operations must approve your identity before school ID requests are available.</p> : null}
+            {parent && parent.identityStatus === "approved" && eligibleSchools.length === 0 ? <p className="helper">No approved schools share this guardian's verification organization yet.</p> : null}
+          </section>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>School access</h2>
+          <p>Requests are limited to schools verified by {VERIFICATION_ORG_NAME} for the selected guardian.</p>
+        </div>
+        <div className="two-column">
+          <section>
+            <h3>Child link claim</h3>
+            <form onSubmit={claimChildren} className="stack">
+              <label>
+                Guardian phone
+                <input name="phone" required disabled={!parent} defaultValue={parent?.phone ?? ""} placeholder="+256..." />
+              </label>
+              <label>
+                Approved request school
+                <select name="schoolId" required disabled={!parent}>
+                  {state.schoolIdRequests
+                    .filter((request) => request.parentId === selectedParentId && request.status === "approved")
+                    .map((request) => state.schools.find((school) => school.id === request.schoolId))
+                    .filter((school): school is SchoolRecord => Boolean(school))
+                    .map((school) => (
+                      <option key={school.id} value={school.id}>{school.name}</option>
+                    ))}
+                </select>
+              </label>
+              <button type="submit" disabled={!parent}>Claim child link</button>
+            </form>
+          </section>
+          <section>
+            <h3>My ID requests</h3>
+            <div className="record-list">
+              {state.schoolIdRequests.filter((request) => request.parentId === selectedParentId).length === 0 ? <p className="empty">No school ID requests yet.</p> : null}
+              {state.schoolIdRequests
+                .filter((request) => request.parentId === selectedParentId)
+                .map((request) => (
+                  <article key={request.id}>
+                    <div>
+                      <strong>{schoolName(state, request.schoolId)}</strong>
+                      <p>Verified through {VERIFICATION_ORG_NAME}</p>
+                    </div>
+                    <StatusPill status={request.status} />
+                  </article>
+                ))}
+            </div>
           </section>
         </div>
       </section>
@@ -288,7 +424,7 @@ export default function GuardianPortal() {
       <section className="panel">
         <h2>My children</h2>
         <div className="record-list">
-          {myChildren.length === 0 ? <p className="empty">No children registered yet.</p> : null}
+          {myChildren.length === 0 ? <p className="empty">No school-created child records are linked to this guardian yet.</p> : null}
           {myChildren.map((child) => (
             <article key={child.id}>
               <div>
