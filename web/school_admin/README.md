@@ -4,7 +4,8 @@ This app owns school-facing workflows:
 
 - school registration status
 - student and guardian relationship verification
-- school transport operations
+- school transport assignment after child, driver, and vehicle verification
+- trip creation from approved transport plans
 - school-scoped audit views
 
-The phase-1 MVP currently exposes these workflows through the operations console so uploaded documents and approvals share one local browser store during prototyping.
+The phase-1 MVP uses the shared browser-local store so guardian, driver, school, and operations workflows can be demonstrated together during prototyping.

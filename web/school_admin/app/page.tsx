@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
 type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
+type TransportPlanStatus = "assigned" | "scheduled";
+type TripStatus = "scheduled";
 
 type DocumentRecord = {
   id: string;
@@ -118,6 +120,50 @@ type SchoolIdRequestRecord = {
   reviewedAt?: string;
 };
 
+type DriverRecord = {
+  id: string;
+  name: string;
+  phone: string;
+  status: Status;
+  documents: DocumentRecord[];
+  createdAt: string;
+};
+
+type VehicleRecord = {
+  id: string;
+  driverId: string;
+  registrationNumber: string;
+  status: Status;
+  documents: DocumentRecord[];
+};
+
+type TransportPlanRecord = {
+  id: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  routeLabel: string;
+  pickupPoint: string;
+  dropoffPoint: string;
+  status: TransportPlanStatus;
+  createdAt: string;
+};
+
+type TripRecord = {
+  id: string;
+  transportPlanId: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  scheduledStart: string;
+  status: TripStatus;
+  createdAt: string;
+};
+
 type AppState = {
   parents: ParentRecord[];
   authentications: AuthenticationRecord[];
@@ -128,10 +174,12 @@ type AppState = {
   schoolUsers: SchoolUserRecord[];
   schoolIdentities: SchoolIdentityRecord[];
   schoolStaffProfiles: SchoolStaffProfileRecord[];
-  drivers: unknown[];
+  drivers: DriverRecord[];
   schools: SchoolRecord[];
-  vehicles: unknown[];
+  vehicles: VehicleRecord[];
   schoolIdRequests: SchoolIdRequestRecord[];
+  transportPlans: TransportPlanRecord[];
+  trips: TripRecord[];
   audit: string[];
 };
 
@@ -169,6 +217,8 @@ const initialState: AppState = {
   ],
   vehicles: [],
   schoolIdRequests: [],
+  transportPlans: [],
+  trips: [],
   audit: ["MVP workspace created"]
 };
 
@@ -219,6 +269,8 @@ function normalizeState(state: Partial<AppState>): AppState {
     ),
     vehicles: state.vehicles ?? initialState.vehicles,
     schoolIdRequests: state.schoolIdRequests ?? [],
+    transportPlans: state.transportPlans ?? [],
+    trips: state.trips ?? [],
     audit: state.audit ?? initialState.audit
   };
 }
@@ -281,6 +333,14 @@ export default function SchoolPortal() {
           .map((child) => ({ parent, child }))
       ),
     [selectedSchoolId, state.parents]
+  );
+  const verifiedStudents = students.filter(({ child }) => child.verificationStatus === "approved");
+  const approvedDrivers = state.drivers.filter((driver) => driver.status === "approved");
+  const approvedVehicles = state.vehicles.filter((vehicle) => vehicle.status === "approved");
+  const schoolTransportPlans = state.transportPlans.filter((plan) => plan.schoolId === selectedSchoolId);
+  const schoolTrips = state.trips.filter((trip) => trip.schoolId === selectedSchoolId);
+  const availableTripPlans = schoolTransportPlans.filter(
+    (plan) => !state.trips.some((trip) => trip.transportPlanId === plan.id)
   );
   const sessionAuth = state.schoolAuthentications.find((item) => item.userId === sessionUserId);
 
@@ -453,6 +513,89 @@ export default function SchoolPortal() {
     );
   }
 
+  function createTransportPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const [parentId, childId] = String(form.get("studentKey")).split("|");
+    const driverId = String(form.get("driverId"));
+    const vehicleId = String(form.get("vehicleId"));
+    const parent = state.parents.find((item) => item.id === parentId);
+    const child = parent?.children.find((item) => item.id === childId);
+    const driver = state.drivers.find((item) => item.id === driverId);
+    const vehicle = state.vehicles.find((item) => item.id === vehicleId);
+
+    if (!school || school.status !== "approved") {
+      setMessage("Transport plans require an approved school.");
+      return;
+    }
+    if (!parent || !child || child.schoolId !== selectedSchoolId || child.verificationStatus !== "approved") {
+      setMessage("Transport plans require a verified child relationship at this school.");
+      return;
+    }
+    if (!driver || driver.status !== "approved" || !vehicle || vehicle.status !== "approved" || vehicle.driverId !== driver.id) {
+      setMessage("Transport plans require an approved driver and that driver's approved vehicle.");
+      return;
+    }
+
+    const plan: TransportPlanRecord = {
+      id: uid("transport-plan"),
+      schoolId: selectedSchoolId,
+      parentId,
+      childId,
+      driverId,
+      vehicleId,
+      routeLabel: String(form.get("routeLabel")),
+      pickupPoint: String(form.get("pickupPoint")),
+      dropoffPoint: String(form.get("dropoffPoint")),
+      status: "assigned",
+      createdAt: new Date().toISOString()
+    };
+    commit(
+      (current) => ({ ...current, transportPlans: [...current.transportPlans, plan] }),
+      `Transport plan created for ${child.pseudonymousId}`
+    );
+    event.currentTarget.reset();
+  }
+
+  function createTrip(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const transportPlanId = String(form.get("transportPlanId"));
+    const plan = state.transportPlans.find((item) => item.id === transportPlanId);
+    if (!plan || plan.schoolId !== selectedSchoolId) {
+      setMessage("Choose a transport plan for this school before creating a trip.");
+      return;
+    }
+    if (state.trips.some((trip) => trip.transportPlanId === plan.id)) {
+      setMessage("A trip already exists for that transport plan.");
+      return;
+    }
+
+    const trip: TripRecord = {
+      id: uid("trip"),
+      transportPlanId: plan.id,
+      schoolId: plan.schoolId,
+      parentId: plan.parentId,
+      childId: plan.childId,
+      driverId: plan.driverId,
+      vehicleId: plan.vehicleId,
+      scheduledStart: String(form.get("scheduledStart")),
+      status: "scheduled",
+      createdAt: new Date().toISOString()
+    };
+    commit(
+      (current) => ({
+        ...current,
+        transportPlans: current.transportPlans.map((item) =>
+          item.id === plan.id ? { ...item, status: "scheduled" } : item
+        ),
+        trips: [...current.trips, trip]
+      }),
+      `Trip created for ${transportPlanLabel(state, plan)}`
+    );
+    event.currentTarget.reset();
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -573,6 +716,112 @@ export default function SchoolPortal() {
           ))}
         </div>
       </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>Transport assignment</h2>
+          <p>Create transport plans only after the school, guardian relationship, driver, and vehicle are verified.</p>
+        </div>
+        <section className="subpanel">
+          <h3>Create transport plan</h3>
+          <form onSubmit={createTransportPlan} className="form-grid">
+            <label>
+              Verified student
+              <select name="studentKey" required disabled={!school || school.status !== "approved" || verifiedStudents.length === 0}>
+                {verifiedStudents.map(({ parent, child }) => (
+                  <option key={child.id} value={`${parent.id}|${child.id}`}>
+                    {child.pseudonymousId} / {parent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Approved driver
+              <select name="driverId" required disabled={approvedDrivers.length === 0}>
+                {approvedDrivers.map((driver) => (
+                  <option key={driver.id} value={driver.id}>{driver.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Approved vehicle
+              <select name="vehicleId" required disabled={approvedVehicles.length === 0}>
+                {approvedVehicles.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicle.registrationNumber} / {driverName(state, vehicle.driverId)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Route
+              <input name="routeLabel" required disabled={!school || school.status !== "approved"} placeholder="Morning route A" />
+            </label>
+            <label>
+              Pickup point
+              <input name="pickupPoint" required disabled={!school || school.status !== "approved"} placeholder="Kira Road stop" />
+            </label>
+            <label>
+              Drop-off point
+              <input name="dropoffPoint" required disabled={!school || school.status !== "approved"} placeholder="School gate" />
+            </label>
+            <button type="submit" disabled={!school || school.status !== "approved" || verifiedStudents.length === 0 || approvedDrivers.length === 0 || approvedVehicles.length === 0}>
+              Create plan
+            </button>
+          </form>
+          {verifiedStudents.length === 0 ? <p className="helper">Verify a student relationship before assigning transport.</p> : null}
+          {approvedDrivers.length === 0 || approvedVehicles.length === 0 ? <p className="helper">Operations must approve a driver and vehicle before assignment.</p> : null}
+        </section>
+
+        <section className="subpanel">
+          <h3>Create trip</h3>
+          <form onSubmit={createTrip} className="form-grid">
+            <label>
+              Transport plan
+              <select name="transportPlanId" required disabled={availableTripPlans.length === 0}>
+                {availableTripPlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>{transportPlanLabel(state, plan)}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Scheduled start
+              <input name="scheduledStart" type="datetime-local" required disabled={availableTripPlans.length === 0} />
+            </label>
+            <button type="submit" disabled={availableTripPlans.length === 0}>Create trip</button>
+          </form>
+          {schoolTransportPlans.length > 0 && availableTripPlans.length === 0 ? <p className="helper">Every transport plan for this school already has a trip.</p> : null}
+        </section>
+
+        <div className="review-list">
+          {schoolTransportPlans.length === 0 ? <p className="empty">No transport plans for this school yet.</p> : null}
+          {schoolTransportPlans.map((plan) => (
+            <article key={plan.id} className="review-item">
+              <div>
+                <strong>{transportPlanLabel(state, plan)}</strong>
+                <p>{plan.routeLabel} / {plan.pickupPoint} to {plan.dropoffPoint}</p>
+                <p>{driverName(state, plan.driverId)} / {vehicleName(state, plan.vehicleId)}</p>
+              </div>
+              <span className="status-badge">{plan.status}</span>
+            </article>
+          ))}
+        </div>
+        <div className="review-list">
+          {schoolTrips.length === 0 ? <p className="empty">No trips have been created for this school yet.</p> : null}
+          {schoolTrips.map((trip) => {
+            const plan = state.transportPlans.find((item) => item.id === trip.transportPlanId);
+            return (
+              <article key={trip.id} className="review-item">
+                <div>
+                  <strong>{plan ? transportPlanLabel(state, plan) : "Trip"}</strong>
+                  <p>{formatDateTime(trip.scheduledStart)} / {driverName(state, trip.driverId)}</p>
+                </div>
+                <span className="status-badge">{trip.status}</span>
+              </article>
+            );
+          })}
+        </div>
+      </section>
       </> : null}
 
     </main>
@@ -619,4 +868,29 @@ function SchoolAuthJourney({
 
 function StatusPill({ status, label }: { status: Status; label?: string }) {
   return <span className={`pill ${status}`}>{label ?? status}</span>;
+}
+
+function childById(state: AppState, parentId: string, childId: string) {
+  return state.parents.find((parent) => parent.id === parentId)?.children.find((child) => child.id === childId);
+}
+
+function driverName(state: AppState, id: string) {
+  return state.drivers.find((driver) => driver.id === id)?.name ?? "Unassigned driver";
+}
+
+function vehicleName(state: AppState, id: string) {
+  return state.vehicles.find((vehicle) => vehicle.id === id)?.registrationNumber ?? "Unassigned vehicle";
+}
+
+function transportPlanLabel(state: AppState, plan: TransportPlanRecord) {
+  const child = childById(state, plan.parentId, plan.childId);
+  return `${child?.pseudonymousId ?? "Student"} / ${schoolName(state, plan.schoolId)}`;
+}
+
+function formatDateTime(value: string) {
+  return value ? new Date(value).toLocaleString() : "Unscheduled";
+}
+
+function schoolName(state: AppState, id?: string) {
+  return state.schools.find((school) => school.id === id)?.name ?? "No school";
 }

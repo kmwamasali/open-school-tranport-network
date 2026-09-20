@@ -1,10 +1,15 @@
+import re
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.guardians.models import Guardian
 from apps.identity.models import User
 from apps.organizations.models import School
+
+
+STUDENT_PUBLIC_ID_PATTERN = re.compile(r"^STU-[A-Z0-9]{6,12}$")
 
 
 class StudentStatus(models.TextChoices):
@@ -55,6 +60,19 @@ class Student(models.Model):
 
     def __str__(self) -> str:
         return self.pseudonymous_identifier
+
+    def clean(self) -> None:
+        identifier = self.pseudonymous_identifier or ""
+        suffix = identifier.removeprefix("STU-")
+        if not STUDENT_PUBLIC_ID_PATTERN.fullmatch(identifier) or suffix.isdigit():
+            raise ValidationError(
+                {
+                    "pseudonymous_identifier": (
+                        "Student public identifiers must be opaque values like STU-7K4P9X, "
+                        "not sequential IDs or URL paths."
+                    )
+                }
+            )
 
 
 class GuardianRelationship(models.Model):

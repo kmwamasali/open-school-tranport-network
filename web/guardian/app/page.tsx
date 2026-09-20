@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
 type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
+type TransportPlanStatus = "assigned" | "scheduled";
+type TripStatus = "scheduled";
 
 type DocumentRecord = {
   id: string;
@@ -89,16 +91,62 @@ type SchoolIdRequestRecord = {
   reviewedAt?: string;
 };
 
+type DriverRecord = {
+  id: string;
+  name: string;
+  phone: string;
+  status: Status;
+  documents: DocumentRecord[];
+  createdAt: string;
+};
+
+type VehicleRecord = {
+  id: string;
+  driverId: string;
+  registrationNumber: string;
+  status: Status;
+  documents: DocumentRecord[];
+};
+
+type TransportPlanRecord = {
+  id: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  routeLabel: string;
+  pickupPoint: string;
+  dropoffPoint: string;
+  status: TransportPlanStatus;
+  createdAt: string;
+};
+
+type TripRecord = {
+  id: string;
+  transportPlanId: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  scheduledStart: string;
+  status: TripStatus;
+  createdAt: string;
+};
+
 type AppState = {
   parents: ParentRecord[];
   authentications: AuthenticationRecord[];
   users: UserRecord[];
   identities: IdentityRecord[];
   guardianProfiles: GuardianProfileRecord[];
-  drivers: unknown[];
+  drivers: DriverRecord[];
   schools: SchoolRecord[];
-  vehicles: unknown[];
+  vehicles: VehicleRecord[];
   schoolIdRequests: SchoolIdRequestRecord[];
+  transportPlans: TransportPlanRecord[];
+  trips: TripRecord[];
   audit: string[];
 };
 
@@ -132,6 +180,8 @@ const initialState: AppState = {
   ],
   vehicles: [],
   schoolIdRequests: [],
+  transportPlans: [],
+  trips: [],
   audit: ["MVP workspace created"]
 };
 
@@ -192,6 +242,8 @@ function normalizeState(state: Partial<AppState>): AppState {
     ),
     vehicles: state.vehicles ?? initialState.vehicles,
     schoolIdRequests: state.schoolIdRequests ?? [],
+    transportPlans: state.transportPlans ?? [],
+    trips: state.trips ?? [],
     audit: state.audit ?? initialState.audit
   };
 }
@@ -236,8 +288,10 @@ export default function GuardianPortal() {
     const savedUserId = window.sessionStorage.getItem("ostn.guardian.session");
     if (savedUserId) {
       const savedAuth = loadedState.authentications.find((item) => item.userId === savedUserId);
+      const savedProfile = loadedState.guardianProfiles.find((item) => item.userId === savedUserId);
       if (savedAuth) {
         setSessionUserId(savedUserId);
+        if (savedProfile) setSelectedParentId(savedProfile.parentId);
         setAuthStage(savedAuth.otpVerified ? "dashboard" : "verify");
       }
     }
@@ -257,6 +311,14 @@ export default function GuardianPortal() {
       )
     : [];
   const myChildren = useMemo(() => parent?.children ?? [], [parent]);
+  const myTransportPlans = useMemo(
+    () => parent ? state.transportPlans.filter((plan) => plan.parentId === parent.id) : [],
+    [parent, state.transportPlans]
+  );
+  const myTrips = useMemo(
+    () => parent ? state.trips.filter((trip) => trip.parentId === parent.id) : [],
+    [parent, state.trips]
+  );
 
   function commit(updater: (current: AppState) => AppState, audit: string) {
     setState((current) => {
@@ -379,6 +441,9 @@ export default function GuardianPortal() {
         ...current,
         parents: current.parents.map((item) =>
           item.id === selectedParentId ? { ...item, otpVerified: true } : item
+        ),
+        authentications: current.authentications.map((item) =>
+          item.userId === sessionUserId ? { ...item, otpVerified: true } : item
         )
       }),
       "Phone verification completed"
@@ -444,6 +509,12 @@ export default function GuardianPortal() {
   const sessionIdentity = state.identities.find((item) => item.userId === sessionUserId);
   const sessionProfile = state.guardianProfiles.find((item) => item.userId === sessionUserId);
   const studentAccessChild = parent?.children.find((child) => child.id === studentAccessChildId);
+  const studentAccessPlan = parent && studentAccessChild
+    ? state.transportPlans.find((plan) => plan.parentId === parent.id && plan.childId === studentAccessChild.id)
+    : undefined;
+  const studentAccessTrip = studentAccessPlan
+    ? state.trips.find((trip) => trip.transportPlanId === studentAccessPlan.id)
+    : undefined;
 
   function claimChildren(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -653,15 +724,46 @@ export default function GuardianPortal() {
         <h2>My children</h2>
         <div className="record-list">
           {myChildren.length === 0 ? <p className="empty">No school-created child records are linked to this guardian yet.</p> : null}
-          {myChildren.map((child) => (
-            <article key={child.id}>
-              <div>
-                <strong>{child.pseudonymousId}</strong>
-                <p>{schoolName(state, child.schoolId)} / {child.displayName}</p>
-              </div>
-              <StatusPill status={child.verificationStatus} />
-            </article>
-          ))}
+          {myChildren.map((child) => {
+            const plan = myTransportPlans.find((item) => item.childId === child.id);
+            const trip = plan ? myTrips.find((item) => item.transportPlanId === plan.id) : undefined;
+            return (
+              <article key={child.id}>
+                <div>
+                  <strong>{child.pseudonymousId}</strong>
+                  <p>{schoolName(state, child.schoolId)} / {child.displayName}</p>
+                  <p>{plan ? `${plan.routeLabel} with ${driverName(state, plan.driverId)}` : "No transport plan assigned"}</p>
+                  {trip ? <p>Trip {trip.status} / {formatDateTime(trip.scheduledStart)}</p> : null}
+                </div>
+                <StatusPill status={child.verificationStatus} />
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>Transport plans and trips</h2>
+          <p>Only plans linked to this verified guardian relationship are shown here.</p>
+        </div>
+        <div className="record-list">
+          {myTransportPlans.length === 0 ? <p className="empty">No transport plans have been assigned yet.</p> : null}
+          {myTransportPlans.map((plan) => {
+            const trip = myTrips.find((item) => item.transportPlanId === plan.id);
+            const child = parent?.children.find((item) => item.id === plan.childId);
+            return (
+              <article key={plan.id}>
+                <div>
+                  <strong>{child?.pseudonymousId ?? "Student"} / {plan.routeLabel}</strong>
+                  <p>{plan.pickupPoint} to {plan.dropoffPoint}</p>
+                  <p>{driverName(state, plan.driverId)} / {vehicleName(state, plan.vehicleId)}</p>
+                  {trip ? <p>{formatDateTime(trip.scheduledStart)} / {trip.status}</p> : <p>Trip not created yet</p>}
+                </div>
+                <span className="status-badge">{plan.status}</span>
+              </article>
+            );
+          })}
         </div>
       </section>
 
@@ -692,7 +794,7 @@ export default function GuardianPortal() {
             </div>
             <div className="student-limited-details">
               <span><strong>Relationship</strong>{studentAccessChild.verificationStatus}</span>
-              <span><strong>Transport</strong>Trip details appear when assigned</span>
+              <span><strong>Transport</strong>{studentAccessTrip ? `${studentAccessTrip.status} / ${formatDateTime(studentAccessTrip.scheduledStart)}` : "Trip details appear when assigned"}</span>
               <span><strong>Personal data</strong>Limited to this student record</span>
             </div>
             <button type="button" className="ghost" onClick={signOutStudent}>Lock student view</button>
@@ -823,4 +925,16 @@ function AuthJourney({
 
 function schoolName(state: AppState, id?: string) {
   return state.schools.find((school) => school.id === id)?.name ?? "No school";
+}
+
+function driverName(state: AppState, id: string) {
+  return state.drivers.find((driver) => driver.id === id)?.name ?? "Assigned driver";
+}
+
+function vehicleName(state: AppState, id: string) {
+  return state.vehicles.find((vehicle) => vehicle.id === id)?.registrationNumber ?? "Assigned vehicle";
+}
+
+function formatDateTime(value: string) {
+  return value ? new Date(value).toLocaleString() : "Unscheduled";
 }

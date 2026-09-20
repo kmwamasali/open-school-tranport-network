@@ -114,3 +114,8 @@ class VerificationCase(models.Model):
     def clean(self) -> None:
         if self.reviewed_by_id and self.opened_by_id == self.reviewed_by_id:
             raise ValidationError("A verification case cannot be approved by its submitter.")
+        if self.status == VerificationStatus.APPROVED:
+            if not self.reviewed_by_id:
+                raise ValidationError("An approved verification case requires an independent reviewer.")
+            if not self.decision_at:
+                raise ValidationError("An approved verification case requires a decision timestamp.")

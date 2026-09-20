@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.identity.models import User
@@ -39,3 +40,48 @@ class Driver(models.Model):
 
     def __str__(self) -> str:
         return f"Driver:{self.id}"
+
+    def activation_requirements_met(self) -> bool:
+        if not self.pk:
+            return False
+
+        from apps.identity.models import (
+            IdentityRecord,
+            VerificationCase,
+            VerificationStatus,
+            VerificationSubjectType,
+        )
+
+        identity_approved = IdentityRecord.objects.filter(
+            user=self.user,
+            verification_status=VerificationStatus.APPROVED,
+        ).exists()
+        independent_case_approved = (
+            VerificationCase.objects.filter(
+                subject_type=VerificationSubjectType.DRIVER,
+                subject_id=self.id,
+                status=VerificationStatus.APPROVED,
+                reviewed_by__isnull=False,
+                decision_at__isnull=False,
+            )
+            .exclude(reviewed_by=models.F("opened_by"))
+            .exists()
+        )
+        vehicle_approved = self.vehicles.filter(
+            status=VerificationStatus.APPROVED,
+            insurance_status=VerificationStatus.APPROVED,
+            inspection_status=VerificationStatus.APPROVED,
+        ).exists()
+
+        return identity_approved and independent_case_approved and vehicle_approved
+
+    def clean(self) -> None:
+        if self.status == DriverStatus.ACTIVE and not self.activation_requirements_met():
+            raise ValidationError(
+                {
+                    "status": (
+                        "A driver cannot become ACTIVE until identity, independent review, "
+                        "vehicle, insurance, and inspection checks are approved."
+                    )
+                }
+            )

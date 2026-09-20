@@ -67,10 +67,10 @@ packages/
 
 The runnable phase-1 MVP is split by responsibility:
 
-- `web/guardian`: parent/guardian registration, identity self-application, school ID requests, and child link tracking
-- `web/school_admin`: school registration, guardian ID request review, school-owned child creation, and school-scoped relationship verification
-- `web/driver`: standalone driver and fleet-operator onboarding, document submission, approval tracking, and vehicle submission after driver verification
-- `web/operations`: admin/NGO verification console for reviewing submitted profile evidence and approving guardians, schools, drivers, and vehicles
+- `web/guardian`: parent/guardian registration, identity self-application, school ID requests, child link tracking, and assigned trip visibility
+- `web/school_admin`: school registration, guardian ID request review, school-owned child creation, relationship verification, transport assignment, and trip creation
+- `web/driver`: standalone driver and fleet-operator onboarding, document submission, approval tracking, vehicle submission after driver verification, and assigned trip visibility
+- `web/operations`: admin/NGO verification console for reviewing submitted profile evidence, approving guardians, schools, drivers, and vehicles, and monitoring the phase-1 workflow
 
 Run a portal from the repository root:
 

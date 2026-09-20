@@ -5,6 +5,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 type Status = "pending" | "approved" | "rejected";
 type OwnerType = "guardian" | "driver" | "school" | "vehicle";
 type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
+type TransportPlanStatus = "assigned" | "scheduled";
+type TripStatus = "scheduled";
 
 type DocumentRecord = {
   id: string;
@@ -92,6 +94,33 @@ type SchoolIdRequestRecord = {
   reviewedAt?: string;
 };
 
+type TransportPlanRecord = {
+  id: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  routeLabel: string;
+  pickupPoint: string;
+  dropoffPoint: string;
+  status: TransportPlanStatus;
+  createdAt: string;
+};
+
+type TripRecord = {
+  id: string;
+  transportPlanId: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  scheduledStart: string;
+  status: TripStatus;
+  createdAt: string;
+};
+
 type AppState = {
   parents: ParentRecord[];
   authentications: unknown[];
@@ -113,6 +142,8 @@ type AppState = {
   schools: SchoolRecord[];
   vehicles: VehicleRecord[];
   schoolIdRequests: SchoolIdRequestRecord[];
+  transportPlans: TransportPlanRecord[];
+  trips: TripRecord[];
   audit: string[];
   operatorAccount?: { name: string; phone: string; otpVerified: boolean };
 };
@@ -160,6 +191,8 @@ const initialState: AppState = {
   ],
   vehicles: [],
   schoolIdRequests: [],
+  transportPlans: [],
+  trips: [],
   audit: ["MVP workspace created"]
   ,operatorAccount: undefined
 };
@@ -213,6 +246,8 @@ function normalizeState(state: Partial<AppState>): AppState {
     ),
     vehicles: state.vehicles ?? initialState.vehicles,
     schoolIdRequests: state.schoolIdRequests ?? [],
+    transportPlans: state.transportPlans ?? [],
+    trips: state.trips ?? [],
     audit: state.audit ?? initialState.audit
     ,operatorAccount: state.operatorAccount
   };
@@ -430,6 +465,8 @@ export default function OperationsConsole() {
         <Metric label="Drivers" value={state.drivers.length} />
         <Metric label="Schools" value={state.schools.length} />
         <Metric label="Pending docs" value={pendingItems.length} />
+        <Metric label="Plans" value={state.transportPlans.length} />
+        <Metric label="Trips" value={state.trips.length} />
       </section>
 
       <section className="panel">
@@ -483,6 +520,29 @@ export default function OperationsConsole() {
 
       <section className="panel">
         <div className="panel-heading">
+          <h2>Transport workflow</h2>
+          <p>Plans and trips are created by verified school staff after guardian relationships, drivers, and vehicles are approved.</p>
+        </div>
+        <div className="review-list">
+          {state.transportPlans.length === 0 ? <p className="empty">No transport plans have been created yet.</p> : null}
+          {state.transportPlans.map((plan) => {
+            const trip = state.trips.find((item) => item.transportPlanId === plan.id);
+            return (
+              <article key={plan.id} className="review-item">
+                <div>
+                  <strong>{transportPlanLabel(state, plan)}</strong>
+                  <p>{plan.routeLabel} / {driverName(state, plan.driverId)} / {vehicleName(state, plan.vehicleId)}</p>
+                  <p>{trip ? `Trip ${trip.status} for ${formatDateTime(trip.scheduledStart)}` : "Trip not created yet"}</p>
+                </div>
+                <span className="status-badge">{trip ? trip.status : plan.status}</span>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
           <h2>Audit trail</h2>
           <p>Verification actions are recorded with the accountable organization context.</p>
         </div>
@@ -528,4 +588,29 @@ function DocumentPreview({ document }: { document: DocumentRecord }) {
       </a>
     </div>
   );
+}
+
+function childById(state: AppState, parentId: string, childId: string) {
+  return state.parents.find((parent) => parent.id === parentId)?.children.find((child) => child.id === childId);
+}
+
+function schoolName(state: AppState, id: string) {
+  return state.schools.find((school) => school.id === id)?.name ?? "School";
+}
+
+function driverName(state: AppState, id: string) {
+  return state.drivers.find((driver) => driver.id === id)?.name ?? "Driver";
+}
+
+function vehicleName(state: AppState, id: string) {
+  return state.vehicles.find((vehicle) => vehicle.id === id)?.registrationNumber ?? "Vehicle";
+}
+
+function transportPlanLabel(state: AppState, plan: TransportPlanRecord) {
+  const child = childById(state, plan.parentId, plan.childId);
+  return `${child?.pseudonymousId ?? "Student"} / ${schoolName(state, plan.schoolId)}`;
+}
+
+function formatDateTime(value: string) {
+  return value ? new Date(value).toLocaleString() : "Unscheduled";
 }

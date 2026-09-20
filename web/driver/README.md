@@ -7,6 +7,7 @@ This app owns standalone phase-1 driver and fleet-operator onboarding:
 - approval status tracking
 - vehicle document submission after driver identity approval
 - vehicle verification status tracking
+- assigned trip visibility after school transport planning
 
 Run it from the repository root with:
 
@@ -14,4 +15,4 @@ Run it from the repository root with:
 npm run dev:driver
 ```
 
-The app uses the shared browser-local MVP store so `web/operations` can approve submitted driver and vehicle evidence during prototyping.
+The app uses the shared browser-local MVP store so `web/operations` can approve submitted driver and vehicle evidence and `web/school_admin` can assign verified drivers to trips during prototyping.

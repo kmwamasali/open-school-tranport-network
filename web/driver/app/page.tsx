@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = "pending" | "approved" | "rejected";
 type AuthStage = "welcome" | "register" | "signin" | "verify" | "dashboard";
+type TransportPlanStatus = "assigned" | "scheduled";
+type TripStatus = "scheduled";
 
 type DocumentRecord = {
   id: string;
@@ -105,6 +107,33 @@ type SchoolIdRequestRecord = {
   reviewedAt?: string;
 };
 
+type TransportPlanRecord = {
+  id: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  routeLabel: string;
+  pickupPoint: string;
+  dropoffPoint: string;
+  status: TransportPlanStatus;
+  createdAt: string;
+};
+
+type TripRecord = {
+  id: string;
+  transportPlanId: string;
+  schoolId: string;
+  parentId: string;
+  childId: string;
+  driverId: string;
+  vehicleId: string;
+  scheduledStart: string;
+  status: TripStatus;
+  createdAt: string;
+};
+
 type AppState = {
   parents: ParentRecord[];
   driverAuthentications: DriverAuthenticationRecord[];
@@ -115,6 +144,8 @@ type AppState = {
   schools: SchoolRecord[];
   vehicles: VehicleRecord[];
   schoolIdRequests: SchoolIdRequestRecord[];
+  transportPlans: TransportPlanRecord[];
+  trips: TripRecord[];
   audit: string[];
 };
 
@@ -147,6 +178,8 @@ const initialState: AppState = {
   ],
   vehicles: [],
   schoolIdRequests: [],
+  transportPlans: [],
+  trips: [],
   audit: ["MVP workspace created"]
 };
 
@@ -186,6 +219,8 @@ function normalizeState(state: Partial<AppState>): AppState {
     schools: state.schools ?? initialState.schools,
     vehicles: state.vehicles ?? initialState.vehicles,
     schoolIdRequests: state.schoolIdRequests ?? [],
+    transportPlans: state.transportPlans ?? [],
+    trips: state.trips ?? [],
     audit: state.audit ?? initialState.audit
   };
 }
@@ -242,6 +277,10 @@ export default function DriverPortal() {
   const driverVehicles = useMemo(
     () => state.vehicles.filter((vehicle) => vehicle.driverId === selectedDriverId),
     [selectedDriverId, state.vehicles]
+  );
+  const assignedTrips = useMemo(
+    () => state.trips.filter((trip) => trip.driverId === selectedDriverId),
+    [selectedDriverId, state.trips]
   );
   const sessionAuth = state.driverAuthentications.find((item) => item.userId === sessionUserId);
 
@@ -479,6 +518,30 @@ export default function DriverPortal() {
           ))}
         </div>
       </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>Assigned trips</h2>
+          <p>Trips appear after a school creates a trip from a verified child, driver, and vehicle assignment.</p>
+        </div>
+        <div className="record-list">
+          {assignedTrips.length === 0 ? <p className="empty">No trips assigned to this driver yet.</p> : null}
+          {assignedTrips.map((trip) => {
+            const plan = state.transportPlans.find((item) => item.id === trip.transportPlanId);
+            const child = childById(state, trip.parentId, trip.childId);
+            return (
+              <article key={trip.id}>
+                <div>
+                  <strong>{child?.pseudonymousId ?? "Student"} / {plan?.routeLabel ?? "Route"}</strong>
+                  <p>{plan ? `${plan.pickupPoint} to ${plan.dropoffPoint}` : schoolName(state, trip.schoolId)}</p>
+                  <p>{formatDateTime(trip.scheduledStart)} / {vehicleName(state, trip.vehicleId)}</p>
+                </div>
+                <span className="status-badge">{trip.status}</span>
+              </article>
+            );
+          })}
+        </div>
+      </section>
       </> : null}
     </main>
   );
@@ -524,4 +587,20 @@ function DriverAuthJourney({
 
 function StatusPill({ status, label }: { status: Status; label?: string }) {
   return <span className={`pill ${status}`}>{label ?? status}</span>;
+}
+
+function childById(state: AppState, parentId: string, childId: string) {
+  return state.parents.find((parent) => parent.id === parentId)?.children.find((child) => child.id === childId);
+}
+
+function schoolName(state: AppState, id: string) {
+  return state.schools.find((school) => school.id === id)?.name ?? "School";
+}
+
+function vehicleName(state: AppState, id: string) {
+  return state.vehicles.find((vehicle) => vehicle.id === id)?.registrationNumber ?? "Assigned vehicle";
+}
+
+function formatDateTime(value: string) {
+  return value ? new Date(value).toLocaleString() : "Unscheduled";
 }
