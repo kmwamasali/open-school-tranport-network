@@ -30,7 +30,32 @@ Authentication credentials, sensitive identity evidence, and role-specific recor
 
 # Current Implementation
 
-The repository now follows the modular structure from the implementation starter kit:
+This repository currently contains a runnable phase-1 MVP for the core safety workflow:
+
+```text
+Guardian registration
+  -> operations identity approval
+  -> school registration and approval
+  -> school ID request
+  -> child record creation and guardian relationship verification
+  -> driver verification
+  -> vehicle verification
+  -> transport assignment
+  -> trip creation
+```
+
+The MVP is intentionally role-split. Each portal shows one actor's view of the same browser-local demo data so the workflow can be demonstrated end to end before the Django REST API is connected.
+
+What the current implementation does:
+
+- separates authentication, user, identity evidence, and role-specific profile state in the UI model
+- lets guardians register, verify phone access, submit identity evidence, request school access, view linked children, and see assigned plans/trips
+- lets school staff register a school, verify guardian school requests, create pseudonymous child records, verify guardian-child relationships, assign approved drivers/vehicles, and create scheduled trips
+- lets drivers register, submit verification evidence, track approval, submit vehicles after approval, and view assigned trips
+- lets operations staff approve guardian, school, driver, and vehicle evidence and monitor the local audit/workflow state
+- uses opaque student identifiers such as `STU-7K4P9X` instead of exposing sequential child IDs in the role views
+
+The repository follows the modular structure from the implementation starter kit:
 
 ```text
 backend/
@@ -65,21 +90,26 @@ packages/
   protocol/
 ```
 
-The runnable phase-1 MVP is split by responsibility:
+The runnable web portals are split by responsibility:
 
 - `web/guardian`: parent/guardian registration, identity self-application, school ID requests, child link tracking, and assigned trip visibility
 - `web/school_admin`: school registration, guardian ID request review, school-owned child creation, relationship verification, transport assignment, and trip creation
 - `web/driver`: standalone driver and fleet-operator onboarding, document submission, approval tracking, vehicle submission after driver verification, and assigned trip visibility
 - `web/operations`: admin/NGO verification console for reviewing submitted profile evidence, approving guardians, schools, drivers, and vehicles, and monitoring the phase-1 workflow
 
-Run a portal from the repository root:
+Install dependencies once from the repository root:
 
 ```bash
 npm install
+```
+
+Run the portals from separate terminals:
+
+```bash
 npm run dev:operations
-npm run dev:driver
 npm run dev:guardian
 npm run dev:school
+npm run dev:driver
 ```
 
 Default local ports:
@@ -91,7 +121,13 @@ School:     http://localhost:3002
 Driver:     http://localhost:3003
 ```
 
-The MVP uses browser storage for now. The next milestone is to move persistence and authorization into the Django REST backend under `backend/`.
+To verify all web workspaces compile:
+
+```bash
+npm run build
+```
+
+The MVP uses browser `localStorage` under the key `ostn.phase1.mvp`. Clearing site data resets the demo workflow. The Django backend under `backend/` contains the modular domain skeleton and model guardrails, but the current runnable portals still use browser-local persistence. The next milestone is to move persistence, authorization, audit events, and trip state transitions behind the Django REST API.
 
 ---
 
